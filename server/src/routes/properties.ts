@@ -1,12 +1,12 @@
 import { Router, Response } from 'express';
-import { PrismaClient, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import { body, validationResult } from 'express-validator';
 import bcrypt from 'bcryptjs';
 import { authenticate, requirePropertyAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
+import prisma from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ─── Get My Property ──────────────────────────────────────────────────────────
 

@@ -1,11 +1,11 @@
 import { Router, Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import { PrismaClient, BookingSource, BookingStatus } from '@prisma/client';
+import { BookingSource, BookingStatus } from '@prisma/client';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
+import prisma from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ─── Create Booking (manual or via API) ──────────────────────────────────────
 

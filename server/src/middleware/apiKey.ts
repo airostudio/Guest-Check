@@ -1,8 +1,8 @@
 import { Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
-import { AuthRequest } from '../types';
 
-const prisma = new PrismaClient();
+import { AuthRequest } from '../types';
+import prisma from '../lib/prisma';
+
 
 // Authenticate via API key for external booking system integrations
 export const authenticateApiKey = async (

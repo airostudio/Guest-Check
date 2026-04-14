@@ -2,16 +2,16 @@ import { Router, Request, Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { PrismaClient, UserRole, PropertyType } from '@prisma/client';
+import { UserRole, PropertyType } from '@prisma/client';
 import crypto from 'crypto';
 import config from '../config/config';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { emailService } from '../services/email.service';
 import logger from '../utils/logger';
+import prisma from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ─── Register Property + Admin User ────────────────────────────────────────
 

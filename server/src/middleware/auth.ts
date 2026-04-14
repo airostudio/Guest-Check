@@ -1,10 +1,10 @@
 import { Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
+
 import config from '../config/config';
 import { AuthRequest, JwtPayload } from '../types';
+import prisma from '../lib/prisma';
 
-const prisma = new PrismaClient();
 
 export const authenticate = async (
   req: AuthRequest,

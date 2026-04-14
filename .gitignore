@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Build output
+client/dist/
+server/dist/
+
+# Environment — real secrets (never commit these)
+.env
+.env.local
+.env.production
+.env.development
+server/.env
+
+# .env.vercel is a reference template (no real values) — safe to commit
+# If you add real values, add it here:
+# .env.vercel
+
+# Prisma generated client
+server/node_modules/.prisma/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Vercel
+.vercel/

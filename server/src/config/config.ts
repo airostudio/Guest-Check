@@ -1,7 +1,11 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+// Load .env for local development only.
+// On Vercel, env vars are injected directly into process.env — dotenv is a no-op.
+if (process.env.NODE_ENV !== 'production') {
+  dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+}
 
 const config = {
   env: process.env.NODE_ENV || 'development',

@@ -1,12 +1,12 @@
 import { Router, Response } from 'express';
-import { PrismaClient, PropertyStatus, ReviewStatus } from '@prisma/client';
+import { PropertyStatus, ReviewStatus } from '@prisma/client';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { emailService } from '../services/email.service';
 import logger from '../utils/logger';
+import prisma from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ─── Pending Properties ────────────────────────────────────────────────────────
 

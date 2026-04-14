@@ -1,11 +1,11 @@
 import { Router, Response } from 'express';
-import { PrismaClient, ReviewStatus } from '@prisma/client';
+import { ReviewStatus } from '@prisma/client';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { ratingToLabel } from '../utils/riskScore';
+import prisma from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ─── Caller ID Lookup ─────────────────────────────────────────────────────────
 // Called when a known number rings reception — pops up guest profile

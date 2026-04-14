@@ -1,12 +1,12 @@
 import { Router, Response } from 'express';
 import { body, query, validationResult } from 'express-validator';
-import { PrismaClient, RiskLevel, ReviewStatus } from '@prisma/client';
+import { RiskLevel, ReviewStatus } from '@prisma/client';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { calculateRiskLevel } from '../utils/riskScore';
+import prisma from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ─── Search Guests ────────────────────────────────────────────────────────────
 

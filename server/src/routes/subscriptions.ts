@@ -1,13 +1,13 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient, SubscriptionTier, SubscriptionStatus } from '@prisma/client';
+import { SubscriptionTier, SubscriptionStatus } from '@prisma/client';
 import { authenticate, requirePropertyAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { stripeService } from '../services/stripe.service';
 import config from '../config/config';
 import logger from '../utils/logger';
+import prisma from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ─── Plan Definitions ─────────────────────────────────────────────────────────
 

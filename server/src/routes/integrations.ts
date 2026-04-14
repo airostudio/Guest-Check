@@ -1,13 +1,13 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient, BookingSource, BookingStatus } from '@prisma/client';
+import { BookingSource, BookingStatus } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { authenticate, requirePropertyAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import logger from '../utils/logger';
+import prisma from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ─── API Key Management ───────────────────────────────────────────────────────
 
