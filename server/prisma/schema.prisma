@@ -20,6 +20,7 @@ enum PropertyType {
   APARTMENT
   BOUTIQUE_HOTEL
   RESORT
+  CARAVAN_PARK
   OTHER
 }
 

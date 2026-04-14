@@ -13,6 +13,7 @@ const PROPERTY_TYPES = [
   { value: 'APARTMENT', label: 'Apartment / Serviced Apartments' },
   { value: 'BOUTIQUE_HOTEL', label: 'Boutique Hotel' },
   { value: 'RESORT', label: 'Resort' },
+  { value: 'CARAVAN_PARK', label: 'Caravan Park' },
   { value: 'OTHER', label: 'Other' },
 ];
 
