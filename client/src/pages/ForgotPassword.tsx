@@ -27,7 +27,7 @@ export default function ForgotPassword() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center justify-center">
-            <img src="/logo.png" alt="GuestCheck" style={{ width: 300, mixBlendMode: "multiply" as const }} />
+            <img src="/logo.png" alt="GuestCheck" style={{ width: 170, mixBlendMode: "multiply" as const }} />
           </Link>
         </div>
 

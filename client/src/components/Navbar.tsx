@@ -31,7 +31,7 @@ export default function Navbar() {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link to="/dashboard">
-            <img src="/logo.png" alt="GuestCheck" style={{ width: 300 }} />
+            <img src="/logo.png" alt="GuestCheck" style={{ width: 170 }} />
           </Link>
 
           {/* Desktop nav */}
