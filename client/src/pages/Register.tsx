@@ -54,7 +54,8 @@ export default function Register() {
       toast.success('Registration successful! Please check your email to verify your account.');
       navigate('/login');
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Registration failed';
+      const data = (err as { response?: { data?: { message?: string; errors?: { msg: string }[] } } })?.response?.data;
+      const msg = data?.message || data?.errors?.[0]?.msg || 'Registration failed';
       toast.error(msg);
     } finally {
       setLoading(false);
@@ -114,13 +115,13 @@ export default function Register() {
                 <div>
                   <label className="label">Password</label>
                   <input type="password" className="input" value={form.password} onChange={(e) => update('password', e.target.value)} required minLength={8} />
-                  <p className="text-xs text-slate-500 mt-1">Min 8 chars with uppercase, number, and special character</p>
+                  <p className="text-xs text-slate-500 mt-1">Min 8 chars with uppercase, lowercase, number, and one of: @ $ ! % * ? &</p>
                 </div>
                 <div>
                   <label className="label">Confirm password</label>
                   <input type="password" className="input" value={form.confirmPassword} onChange={(e) => update('confirmPassword', e.target.value)} required />
                 </div>
-                <button type="button" onClick={nextStep} disabled={!form.firstName || !form.email || !form.password} className="btn-primary w-full py-3">
+                <button type="button" onClick={nextStep} disabled={!form.firstName || !form.lastName || !form.email || !form.password} className="btn-primary w-full py-3">
                   Continue →
                 </button>
               </div>
