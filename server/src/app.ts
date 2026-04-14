@@ -21,6 +21,10 @@ import adminRoutes from './routes/admin';
 
 const app = express();
 
+// Trust the first proxy hop (required on Vercel / any reverse-proxy host so
+// express-rate-limit can read the real client IP from X-Forwarded-For).
+app.set('trust proxy', 1);
+
 // ─── Security ────────────────────────────────────────────────────────────────
 
 app.use(helmet());
