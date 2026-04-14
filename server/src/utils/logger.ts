@@ -16,14 +16,10 @@ const logger = winston.createLogger({
           })
         )
   ),
+  // File transports are omitted — Vercel's filesystem is read-only.
+  // Logs are captured from stdout/stderr by Vercel's log drain.
   transports: [
     new winston.transports.Console(),
-    ...(config.env === 'production'
-      ? [
-          new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
-          new winston.transports.File({ filename: 'logs/combined.log' }),
-        ]
-      : []),
   ],
 });
 
