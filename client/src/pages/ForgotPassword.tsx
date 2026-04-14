@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/client';
 import toast from 'react-hot-toast';
-import { Star, Mail } from 'lucide-react';
+import { Mail } from 'lucide-react';
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
@@ -26,11 +26,8 @@ export default function ForgotPassword() {
     <div className="min-h-screen bg-gradient-to-br from-brand-900 to-brand-700 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link to="/" className="inline-flex items-center gap-2 text-white">
-            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-              <Star className="w-6 h-6 text-white" fill="currentColor" />
-            </div>
-            <span className="text-2xl font-bold">GuestCheck</span>
+          <Link to="/" className="inline-flex items-center justify-center">
+            <img src="/logo.png" alt="GuestCheck" className="h-12 w-auto" />
           </Link>
         </div>
 

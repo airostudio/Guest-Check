@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Star, ChevronDown, Menu, X } from 'lucide-react';
+import { ChevronDown, Menu, X } from 'lucide-react';
 
 const navLinks = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -30,11 +30,8 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link to="/dashboard" className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-              <Star className="w-5 h-5 text-white" fill="currentColor" />
-            </div>
-            <span className="font-bold text-lg text-slate-900">GuestCheck</span>
+          <Link to="/dashboard">
+            <img src="/logo.png" alt="GuestCheck" className="h-8 w-auto" />
           </Link>
 
           {/* Desktop nav */}
@@ -68,8 +65,6 @@ export default function Navbar() {
 
           {/* Right side */}
           <div className="hidden md:flex items-center gap-3">
-            <img src="/logo.png" alt="GuestCheck" style={{ width: 200 }} />
-
             <Link to="/reviews/new" className="btn-primary text-sm px-3 py-1.5">
               + Leave Review
             </Link>
