@@ -116,7 +116,7 @@ export default function Register() {
         {/* Logo */}
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex flex-col items-center gap-2">
-            <img src="/logo.png" alt="GuestCheck" style={{ width: 300 }} />
+            <img src="/logo.png" alt="GuestCheck" style={{ width: 300, mixBlendMode: "multiply" as const }} />
           </Link>
           <p className="text-brand-200 mt-3 text-sm">Register your accommodation business</p>
         </div>
