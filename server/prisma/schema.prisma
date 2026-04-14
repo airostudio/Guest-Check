@@ -1,0 +1,338 @@
+// GuestCheck - Guest Review Platform for Accommodation Businesses
+// Prisma Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum PropertyType {
+  HOTEL
+  HOSTEL
+  BED_AND_BREAKFAST
+  VACATION_RENTAL
+  APARTMENT
+  BOUTIQUE_HOTEL
+  RESORT
+  OTHER
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  PROPERTY_ADMIN
+  PROPERTY_MANAGER
+  RECEPTIONIST
+}
+
+enum SubscriptionTier {
+  FREE_TRIAL
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  UNPAID
+  PAUSED
+}
+
+enum PropertyStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  REJECTED
+}
+
+enum BookingSource {
+  BOOKING_COM
+  AIRBNB
+  EXPEDIA
+  HOTELS_COM
+  DIRECT
+  MANUAL
+  API
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+}
+
+enum RiskLevel {
+  EXCELLENT    // 5.5 - 6.0
+  GOOD         // 4.0 - 5.4
+  AVERAGE      // 2.5 - 3.9
+  POOR         // 1.0 - 2.4
+  HIGH_RISK    // 0.0 - 0.9
+  UNREVIEWED
+}
+
+enum ReviewStatus {
+  PUBLISHED
+  FLAGGED
+  REMOVED
+  UNDER_REVIEW
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model Property {
+  id          String         @id @default(cuid())
+  name        String
+  type        PropertyType
+  address     String
+  city        String
+  country     String
+  postcode    String?
+  phone       String?
+  website     String?
+  logoUrl     String?
+  description String?
+  status      PropertyStatus @default(PENDING_VERIFICATION)
+
+  // Stripe billing
+  stripeCustomerId     String?
+  subscriptionTier     SubscriptionTier   @default(FREE_TRIAL)
+  subscriptionStatus   SubscriptionStatus @default(TRIALING)
+  stripeSubscriptionId String?
+  trialEndsAt          DateTime?
+  billingEmail         String?
+
+  // Verification
+  vatNumber            String?
+  businessRegNumber    String?
+  verifiedAt           DateTime?
+  verifiedBy           String?
+  rejectionReason      String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  users       User[]
+  reviews     Review[]
+  bookings    Booking[]
+  apiKeys     ApiKey[]
+  integrations Integration[]
+
+  @@index([city, country])
+  @@index([status])
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  password           String
+  firstName          String
+  lastName           String
+  role               UserRole  @default(PROPERTY_MANAGER)
+  phone              String?
+  avatarUrl          String?
+
+  // Property association
+  propertyId         String?
+  property           Property? @relation(fields: [propertyId], references: [id])
+
+  // Email verification
+  emailVerified      Boolean   @default(false)
+  verificationToken  String?
+  verificationExpiry DateTime?
+
+  // Password reset
+  resetToken         String?
+  resetTokenExpiry   DateTime?
+
+  // Session
+  lastLoginAt        DateTime?
+  isActive           Boolean   @default(true)
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  reviews            Review[]
+  auditLogs          AuditLog[]
+
+  @@index([propertyId])
+}
+
+model Guest {
+  id            String    @id @default(cuid())
+  firstName     String
+  lastName      String
+  email         String?
+  phone         String?
+  nationality   String?
+  // Store only partial ID for privacy - last 4 chars of passport/ID number
+  idType        String?   // passport, national_id, drivers_license
+  idLast4       String?
+  profileImage  String?
+  notes         String?   // Internal notes (not shown to guest)
+
+  // Computed risk score (updated after each review)
+  averageRating Float?
+  totalReviews  Int       @default(0)
+  riskLevel     RiskLevel @default(UNREVIEWED)
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  reviews       Review[]
+  bookings      Booking[]
+  phoneNumbers  GuestPhone[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([riskLevel])
+}
+
+// Separate table to support multiple phone numbers per guest
+model GuestPhone {
+  id        String   @id @default(cuid())
+  guestId   String
+  guest     Guest    @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  number    String
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([guestId, number])
+  @@index([number])
+}
+
+model Review {
+  id           String       @id @default(cuid())
+  guestId      String
+  guest        Guest        @relation(fields: [guestId], references: [id])
+  propertyId   String
+  property     Property     @relation(fields: [propertyId], references: [id])
+  reviewerId   String
+  reviewer     User         @relation(fields: [reviewerId], references: [id])
+  bookingId    String?
+  booking      Booking?     @relation(fields: [bookingId], references: [id])
+
+  // Ratings (0–6 scale, matching Booking.com)
+  overallRating    Int       // 0-6, required
+  cleanliness      Int?      // 0-6
+  communication    Int?      // 0-6
+  ruleAdherence    Int?      // 0-6: followed house rules
+  noiseLevel       Int?      // 0-6: 6 = very quiet/respectful
+  propertyRespect  Int?      // 0-6: no damage, kept tidy
+
+  // Comments
+  publicComment    String?   // Visible to other properties
+  privateNote      String?   // Only visible to the reviewing property
+  wouldWelcomeBack Boolean?
+
+  // Stay details
+  stayMonth        Int?      // 1-12
+  stayYear         Int?
+
+  // Moderation
+  status           ReviewStatus @default(PUBLISHED)
+  flagReason       String?
+  moderatedAt      DateTime?
+  moderatedBy      String?
+
+  // Verification: must have a corresponding booking
+  isVerifiedStay   Boolean   @default(false)
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([guestId])
+  @@index([propertyId])
+  @@index([status])
+}
+
+model Booking {
+  id           String        @id @default(cuid())
+  guestId      String
+  guest        Guest         @relation(fields: [guestId], references: [id])
+  propertyId   String
+  property     Property      @relation(fields: [propertyId], references: [id])
+
+  checkIn      DateTime
+  checkOut     DateTime
+  roomNumber   String?
+  numberOfGuests Int         @default(1)
+  totalAmount  Float?
+  currency     String?       @default("USD")
+
+  source       BookingSource @default(MANUAL)
+  externalId   String?       // ID from external booking platform
+  externalUrl  String?       // Link back to booking in platform
+
+  status       BookingStatus @default(CONFIRMED)
+  notes        String?
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  reviews      Review[]
+
+  @@index([guestId])
+  @@index([propertyId])
+  @@index([checkIn])
+  @@index([externalId])
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  propertyId  String
+  property    Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  key         String    @unique @default(cuid())
+  name        String
+  permissions String[]  @default(["read_reviews", "write_bookings"])
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@index([propertyId])
+}
+
+// Booking platform integrations (Booking.com, Airbnb, etc.)
+model Integration {
+  id           String    @id @default(cuid())
+  propertyId   String
+  property     Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  platform     BookingSource
+  accessToken  String?
+  refreshToken String?
+  externalId   String?   // Property ID on the external platform
+  webhookSecret String?
+  isActive     Boolean   @default(true)
+  lastSyncAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([propertyId, platform])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String
+  resource   String
+  resourceId String?
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([resource, resourceId])
+  @@index([createdAt])
+}
