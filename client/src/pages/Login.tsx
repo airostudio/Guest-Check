@@ -29,7 +29,7 @@ export default function Login() {
         {/* Logo */}
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center justify-center">
-            <img src="/logo.png" alt="GuestCheck" className="h-12 w-auto" />
+            <img src="/logo.png" alt="GuestCheck" style={{ width: 300 }} />
           </Link>
           <p className="text-brand-200 mt-2 text-sm">Sign in to your property account</p>
         </div>
