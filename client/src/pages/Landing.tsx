@@ -1,33 +1,34 @@
 import { Link } from 'react-router-dom';
+import { Star, Search, Phone, Plug, ShieldAlert, Building2, Check } from 'lucide-react';
 
 const FEATURES = [
   {
-    icon: '★',
+    icon: Star,
     title: '0–6 Star Guest Reviews',
     desc: 'Rate guests on overall stay, cleanliness, communication, rule adherence, and property respect — aligned with industry-standard scales.',
   },
   {
-    icon: '🔍',
+    icon: Search,
     title: 'Instant Guest Lookup',
     desc: 'Search any arriving guest by name, email, or phone before they check in. See their full review history from verified properties.',
   },
   {
-    icon: '📞',
+    icon: Phone,
     title: 'Caller ID Integration',
     desc: 'When a guest calls reception from a known number, their review profile pops up instantly — reward great guests or act early on problem ones.',
   },
   {
-    icon: '🔗',
+    icon: Plug,
     title: 'Booking System Integration',
     desc: 'Webhooks and API connectors for Booking.com, Airbnb, Expedia, and direct booking systems. Bookings sync automatically.',
   },
   {
-    icon: '⚠️',
+    icon: ShieldAlert,
     title: 'High-Risk Alerts',
     desc: 'Get email alerts when a high-risk guest has an upcoming booking, protecting your property, NPS score, and other guests.',
   },
   {
-    icon: '🏨',
+    icon: Building2,
     title: 'Vetted Members Only',
     desc: 'All property listings are verified before activation. Only registered, genuine accommodation businesses can access the platform.',
   },
@@ -68,9 +69,7 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-              </svg>
+              <Star className="w-5 h-5 text-white" fill="currentColor" />
             </div>
             <span className="font-bold text-lg">GuestCheck</span>
           </div>
@@ -140,9 +139,11 @@ export default function Landing() {
             </p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            {FEATURES.map(({ icon, title, desc }) => (
+            {FEATURES.map(({ icon: Icon, title, desc }) => (
               <div key={title} className="p-6 rounded-2xl border border-slate-100 hover:border-brand-200 hover:shadow-lg transition-all">
-                <div className="text-3xl mb-4">{icon}</div>
+                <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center mb-4">
+                  <Icon className="w-5 h-5 text-brand-600" />
+                </div>
                 <h3 className="font-semibold text-lg text-slate-900 mb-2">{title}</h3>
                 <p className="text-slate-500 text-sm leading-relaxed">{desc}</p>
               </div>
@@ -181,9 +182,7 @@ export default function Landing() {
               <div key={name} className="p-6 rounded-2xl bg-slate-50">
                 <div className="flex gap-1 mb-4">
                   {Array.from({ length: rating }).map((_, i) => (
-                    <svg key={i} className="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                    </svg>
+                    <Star key={i} className="w-4 h-4 text-amber-400" fill="currentColor" />
                   ))}
                 </div>
                 <p className="text-slate-700 italic mb-4">"{quote}"</p>
@@ -227,9 +226,7 @@ export default function Landing() {
                 <ul className="space-y-3 mb-8">
                   {features.map((f) => (
                     <li key={f} className={`flex items-center gap-2 text-sm ${popular ? 'text-brand-100' : 'text-slate-600'}`}>
-                      <svg className={`w-4 h-4 flex-shrink-0 ${popular ? 'text-emerald-300' : 'text-emerald-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
+                      <Check className={`w-4 h-4 flex-shrink-0 ${popular ? 'text-emerald-300' : 'text-emerald-500'}`} />
                       {f}
                     </li>
                   ))}

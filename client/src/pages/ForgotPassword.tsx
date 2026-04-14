@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/client';
 import toast from 'react-hot-toast';
+import { Star, Mail } from 'lucide-react';
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
@@ -27,9 +28,7 @@ export default function ForgotPassword() {
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center gap-2 text-white">
             <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-              </svg>
+              <Star className="w-6 h-6 text-white" fill="currentColor" />
             </div>
             <span className="text-2xl font-bold">GuestCheck</span>
           </Link>
@@ -38,7 +37,11 @@ export default function ForgotPassword() {
         <div className="card p-8">
           {sent ? (
             <div className="text-center">
-              <div className="text-4xl mb-4">📧</div>
+              <div className="flex justify-center mb-4">
+                <div className="w-14 h-14 bg-brand-50 rounded-2xl flex items-center justify-center">
+                  <Mail className="w-7 h-7 text-brand-600" />
+                </div>
+              </div>
               <h1 className="text-xl font-bold text-slate-900 mb-2">Check your email</h1>
               <p className="text-slate-600 text-sm mb-6">
                 If an account exists for <strong>{email}</strong>, you'll receive a password reset link shortly.

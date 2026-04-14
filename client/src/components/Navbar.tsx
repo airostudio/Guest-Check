@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { Star, ChevronDown, Menu, X } from 'lucide-react';
 
 const navLinks = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -31,9 +32,7 @@ export default function Navbar() {
           {/* Logo */}
           <Link to="/dashboard" className="flex items-center gap-2">
             <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-              </svg>
+              <Star className="w-5 h-5 text-white" fill="currentColor" />
             </div>
             <span className="font-bold text-lg text-slate-900">GuestCheck</span>
           </Link>
@@ -82,9 +81,7 @@ export default function Navbar() {
                   {user?.firstName?.[0]}{user?.lastName?.[0]}
                 </div>
                 <span className="text-sm font-medium text-slate-700">{user?.firstName}</span>
-                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                <ChevronDown className="w-4 h-4 text-slate-400" />
               </button>
 
               <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl border border-slate-200 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 z-50">
@@ -121,11 +118,7 @@ export default function Navbar() {
             className="md:hidden p-2 rounded-lg hover:bg-slate-100"
             onClick={() => setMenuOpen(!menuOpen)}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              {menuOpen
-                ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />}
-            </svg>
+            {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
       </div>

@@ -1,3 +1,5 @@
+import { Star } from 'lucide-react';
+
 interface StarRatingProps {
   value: number;        // 0-6
   onChange?: (val: number) => void;
@@ -50,9 +52,7 @@ export default function StarRating({
           } ${getColor(star)}`}
           title={LABELS[star]}
         >
-          <svg viewBox="0 0 24 24" fill="currentColor" className="w-full h-full">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-          </svg>
+          <Star className="w-full h-full" fill="currentColor" />
         </button>
       ))}
       {showLabel && value > 0 && (

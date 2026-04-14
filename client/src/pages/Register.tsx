@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api/client';
 import toast from 'react-hot-toast';
+import { Star } from 'lucide-react';
 
 type Step = 1 | 2 | 3;
 
@@ -70,9 +71,7 @@ export default function Register() {
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center gap-2 text-white">
             <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-              </svg>
+              <Star className="w-6 h-6 text-white" fill="currentColor" />
             </div>
             <span className="text-2xl font-bold">GuestCheck</span>
           </Link>
