@@ -69,6 +69,8 @@ export default function Navbar() {
 
           {/* Right side */}
           <div className="hidden md:flex items-center gap-3">
+            <img src="/logo.png" alt="GuestCheck" style={{ width: 200 }} />
+
             <Link to="/reviews/new" className="btn-primary text-sm px-3 py-1.5">
               + Leave Review
             </Link>
