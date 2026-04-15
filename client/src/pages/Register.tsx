@@ -20,6 +20,36 @@ const PROPERTY_TYPES = [
 
 const STEP_LABELS = ['Your Account', 'Your Property', 'Verification'];
 
+// Defined outside Register so React sees a stable component reference on every render
+function Field({
+  label, name, type = 'text', placeholder, required, value, error, onChange,
+}: {
+  label: string;
+  name: string;
+  type?: string;
+  placeholder?: string;
+  required?: boolean;
+  value: string;
+  error?: string;
+  onChange: (name: string, value: string) => void;
+}) {
+  return (
+    <div>
+      <label className="label">
+        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      <input
+        type={type}
+        className={`input ${error ? 'border-red-400 focus:ring-red-400' : ''}`}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(name, e.target.value)}
+      />
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+    </div>
+  );
+}
+
 export default function Register() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>(1);
@@ -91,24 +121,6 @@ export default function Register() {
     }
   };
 
-  const Field = ({
-    label, name, type = 'text', placeholder, required,
-  }: {
-    label: string; name: string; type?: string; placeholder?: string; required?: boolean;
-  }) => (
-    <div>
-      <label className="label">{label}{required && <span className="text-red-500 ml-0.5">*</span>}</label>
-      <input
-        type={type}
-        className={`input ${errors[name] ? 'border-red-400 focus:ring-red-400' : ''}`}
-        placeholder={placeholder}
-        value={(form as Record<string, string>)[name]}
-        onChange={(e) => set(name, e.target.value)}
-      />
-      {errors[name] && <p className="text-xs text-red-500 mt-1">{errors[name]}</p>}
-    </div>
-  );
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-brand-900 to-brand-700 flex items-center justify-center p-4">
       <div className="w-full max-w-lg">
@@ -152,12 +164,12 @@ export default function Register() {
                 <p className="text-sm text-slate-500 mb-4">This will be the primary admin login for your property.</p>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="First name" name="firstName" required />
-                  <Field label="Last name" name="lastName" required />
+                  <Field label="First name" name="firstName" required value={form.firstName} error={errors.firstName} onChange={set} />
+                  <Field label="Last name" name="lastName" required value={form.lastName} error={errors.lastName} onChange={set} />
                 </div>
-                <Field label="Work email" name="email" type="email" placeholder="you@myproperty.com" required />
-                <Field label="Password" name="password" type="password" placeholder="Min 8 characters" required />
-                <Field label="Confirm password" name="confirmPassword" type="password" required />
+                <Field label="Work email" name="email" type="email" placeholder="you@myproperty.com" required value={form.email} error={errors.email} onChange={set} />
+                <Field label="Password" name="password" type="password" placeholder="Min 8 characters" required value={form.password} error={errors.password} onChange={set} />
+                <Field label="Confirm password" name="confirmPassword" type="password" required value={form.confirmPassword} error={errors.confirmPassword} onChange={set} />
 
                 <button type="button" onClick={goNext} className="btn-primary w-full py-3 flex items-center justify-center gap-2 mt-2">
                   Continue <ChevronRight className="w-4 h-4" />
@@ -171,7 +183,7 @@ export default function Register() {
                 <h2 className="text-lg font-semibold text-slate-900 mb-1">Your Property</h2>
                 <p className="text-sm text-slate-500 mb-4">Tell us about the accommodation you manage.</p>
 
-                <Field label="Property name" name="propertyName" placeholder="The Grand Hotel" required />
+                <Field label="Property name" name="propertyName" placeholder="The Grand Hotel" required value={form.propertyName} error={errors.propertyName} onChange={set} />
 
                 <div>
                   <label className="label">Property type <span className="text-red-500">*</span></label>
@@ -188,14 +200,14 @@ export default function Register() {
                   {errors.propertyType && <p className="text-xs text-red-500 mt-1">{errors.propertyType}</p>}
                 </div>
 
-                <Field label="Street address" name="propertyAddress" placeholder="123 High Street" required />
+                <Field label="Street address" name="propertyAddress" placeholder="123 High Street" required value={form.propertyAddress} error={errors.propertyAddress} onChange={set} />
 
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="City" name="propertyCity" required />
-                  <Field label="Country" name="propertyCountry" placeholder="GB" required />
+                  <Field label="City" name="propertyCity" required value={form.propertyCity} error={errors.propertyCity} onChange={set} />
+                  <Field label="Country" name="propertyCountry" placeholder="GB" required value={form.propertyCountry} error={errors.propertyCountry} onChange={set} />
                 </div>
 
-                <Field label="Postcode" name="propertyPostcode" placeholder="SW1A 1AA" />
+                <Field label="Postcode" name="propertyPostcode" placeholder="SW1A 1AA" value={form.propertyPostcode} error={errors.propertyPostcode} onChange={set} />
 
                 <div className="flex gap-2 mt-2">
                   <button type="button" onClick={() => setStep(1)} className="btn-secondary flex-1 py-3 flex items-center justify-center gap-2">
@@ -216,9 +228,9 @@ export default function Register() {
                   All properties are reviewed by our team before activation. These details help speed that up.
                 </p>
 
-                <Field label="Property phone" name="propertyPhone" type="tel" placeholder="+44 20 1234 5678" />
-                <Field label="Property website" name="propertyWebsite" type="text" placeholder="https://myproperty.com" />
-                <Field label="VAT / Business registration number" name="vatNumber" placeholder="GB123456789" />
+                <Field label="Property phone" name="propertyPhone" type="tel" placeholder="+44 20 1234 5678" value={form.propertyPhone} error={errors.propertyPhone} onChange={set} />
+                <Field label="Property website" name="propertyWebsite" type="text" placeholder="https://myproperty.com" value={form.propertyWebsite} error={errors.propertyWebsite} onChange={set} />
+                <Field label="VAT / Business registration number" name="vatNumber" placeholder="GB123456789" value={form.vatNumber} error={errors.vatNumber} onChange={set} />
 
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 leading-relaxed">
                   By registering you agree to GuestCheck's Terms of Service and Privacy Policy.
