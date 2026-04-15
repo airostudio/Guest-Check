@@ -1,8 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { UserRole, PropertyType } from '@prisma/client';
-import crypto from 'crypto';
+import { UserRole, PropertyType, Prisma } from '@prisma/client';
 import config from '../config/config';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
@@ -23,7 +22,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
   } = req.body;
 
   // Manual validation — clear, specific error messages
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
     res.status(400).json({ success: false, message: 'A valid email address is required' });
     return;
   }
@@ -69,7 +68,6 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
-    const verificationToken = crypto.randomBytes(32).toString('hex');
 
     // Sequential creates — avoids pgbouncer transaction issues with Supabase
     const property = await prisma.property.create({
@@ -87,28 +85,32 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       },
     });
 
-    const user = await prisma.user.create({
-      data: {
-        email: email.toLowerCase().trim(),
-        password: hashedPassword,
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        role: UserRole.PROPERTY_ADMIN,
-        propertyId: property.id,
-        // Email is marked verified so they can log in immediately.
-        // The property itself still requires admin approval before going live.
-        emailVerified: true,
-        verificationToken,
-        verificationExpiry: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      },
-    });
+    let user;
+    try {
+      user = await prisma.user.create({
+        data: {
+          email: email.toLowerCase().trim(),
+          password: hashedPassword,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          role: UserRole.PROPERTY_ADMIN,
+          propertyId: property.id,
+          // Email is marked verified so they can log in immediately.
+          // The property itself still requires admin approval before going live.
+          emailVerified: true,
+        },
+      });
+    } catch (userErr) {
+      // Clean up the orphaned property if user creation fails
+      await prisma.property.delete({ where: { id: property.id } }).catch(() => {});
+      if (userErr instanceof Prisma.PrismaClientKnownRequestError && userErr.code === 'P2002') {
+        res.status(409).json({ success: false, message: 'An account with this email already exists' });
+        return;
+      }
+      throw userErr;
+    }
 
     logger.info(`New registration: ${user.email} for property "${property.name}" (${property.id})`);
-
-    // Send welcome / verification email — non-blocking, failure is not fatal
-    emailService
-      .sendVerificationEmail(user.email, user.firstName, verificationToken)
-      .catch((err) => logger.error('Failed to send verification email', err));
 
     res.status(201).json({
       success: true,
