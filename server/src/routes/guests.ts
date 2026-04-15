@@ -98,10 +98,8 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promis
           noiseLevel: true,
           propertyRespect: true,
           publicComment: true,
-          // Private notes only visible to the reviewing property
-          privateNote: propertyId ? {
-            // This is handled post-query
-          } : undefined,
+          // Always fetch privateNote — filtered per-property in post-processing below
+          privateNote: true,
           wouldWelcomeBack: true,
           stayMonth: true,
           stayYear: true,
@@ -140,14 +138,11 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promis
     return;
   }
 
-  // Filter private notes: only show own property's notes
-  const reviewsWithPrivacy = guest.reviews.map((review: typeof guest.reviews[0] & { privateNote?: string | null }) => {
-    const { privateNote, ...rest } = review as typeof review & { privateNote?: string | null };
-    return {
-      ...rest,
-      privateNote: (review as typeof review & { property?: { id?: string } }).property?.id === propertyId ? privateNote : undefined,
-    };
-  });
+  // Filter private notes: only show own property's private note
+  const reviewsWithPrivacy = guest.reviews.map((review) => ({
+    ...review,
+    privateNote: review.property?.id === propertyId ? review.privateNote : undefined,
+  }));
 
   res.json({
     success: true,

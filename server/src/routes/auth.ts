@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { UserRole, PropertyType, Prisma } from '@prisma/client';
+import crypto from 'crypto';
 import config from '../config/config';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';

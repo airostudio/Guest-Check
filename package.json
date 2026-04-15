@@ -4,7 +4,7 @@
   "private": true,
   "description": "GuestCheck - Guest review platform for accommodation businesses",
   "scripts": {
-    "vercel-build": "cd server && npx prisma generate && cd ../client && npm install && npm run build",
+    "vercel-build": "cd server && npm install && npx prisma generate && cd ../client && npm install && npm run build",
     "dev:server": "cd server && npm run dev",
     "dev:client": "cd client && npm run dev",
     "prisma:migrate": "cd server && npx prisma migrate deploy",
