@@ -114,7 +114,7 @@ export default function Landing() {
             { value: '2,400+', label: 'Properties' },
             { value: '180K+', label: 'Guest Reviews' },
             { value: '98%', label: 'Would Recommend' },
-            { value: '£2.1M', label: 'Damage Prevented' },
+            { value: '$2.1M', label: 'Damage Prevented' },
           ].map(({ value, label }) => (
             <div key={label}>
               <div className="text-3xl font-bold text-brand-300">{value}</div>
