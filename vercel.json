@@ -2,7 +2,7 @@
   "version": 2,
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "client/dist",
-  "installCommand": "npm install && cd client && npm install",
+  "installCommand": "npm install && cd client && npm install --include=dev",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
     { "source": "/((?!api).*)", "destination": "/index.html" }
