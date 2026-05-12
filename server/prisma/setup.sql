@@ -1,53 +1,56 @@
--- GuestCheck — Complete Database Setup
--- Run this entire script in the Supabase SQL Editor to set up the schema and
--- seed the initial admin account.
+-- GuestCheck — Complete Database Setup (idempotent — safe to run multiple times)
+-- Run this entire script in the Supabase SQL Editor.
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Required for gen_random_uuid() and bcrypt password hashing
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- ── Enums ─────────────────────────────────────────────────────────────────────
+-- ── Enums (wrapped so they skip gracefully if already exist) ──────────────────
 
-CREATE TYPE "PropertyType" AS ENUM (
-  'HOTEL', 'HOSTEL', 'BED_AND_BREAKFAST', 'VACATION_RENTAL',
-  'APARTMENT', 'BOUTIQUE_HOTEL', 'RESORT', 'CARAVAN_PARK', 'OTHER'
-);
+DO $$ BEGIN CREATE TYPE "PropertyType" AS ENUM (
+  'HOTEL','HOSTEL','BED_AND_BREAKFAST','VACATION_RENTAL',
+  'APARTMENT','BOUTIQUE_HOTEL','RESORT','CARAVAN_PARK','OTHER'
+); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE "UserRole" AS ENUM (
-  'SUPER_ADMIN', 'PROPERTY_ADMIN', 'PROPERTY_MANAGER', 'RECEPTIONIST'
-);
+DO $$ BEGIN CREATE TYPE "UserRole" AS ENUM (
+  'SUPER_ADMIN','PROPERTY_ADMIN','PROPERTY_MANAGER','RECEPTIONIST'
+); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE "SubscriptionTier" AS ENUM (
-  'FREE_TRIAL', 'BASIC', 'PROFESSIONAL', 'ENTERPRISE'
-);
+DO $$ BEGIN CREATE TYPE "SubscriptionTier" AS ENUM (
+  'FREE_TRIAL','BASIC','PROFESSIONAL','ENTERPRISE'
+); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE "SubscriptionStatus" AS ENUM (
-  'TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELLED', 'UNPAID', 'PAUSED'
-);
+DO $$ BEGIN CREATE TYPE "SubscriptionStatus" AS ENUM (
+  'TRIALING','ACTIVE','PAST_DUE','CANCELLED','UNPAID','PAUSED'
+); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE "PropertyStatus" AS ENUM (
-  'PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED', 'REJECTED'
-);
+DO $$ BEGIN CREATE TYPE "PropertyStatus" AS ENUM (
+  'PENDING_VERIFICATION','ACTIVE','SUSPENDED','REJECTED'
+); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE "BookingSource" AS ENUM (
-  'BOOKING_COM', 'AIRBNB', 'EXPEDIA', 'HOTELS_COM', 'DIRECT', 'MANUAL', 'API'
-);
+DO $$ BEGIN CREATE TYPE "BookingSource" AS ENUM (
+  'BOOKING_COM','AIRBNB','EXPEDIA','HOTELS_COM','DIRECT','MANUAL','API'
+); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE "BookingStatus" AS ENUM (
-  'CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED', 'NO_SHOW'
-);
+DO $$ BEGIN CREATE TYPE "BookingStatus" AS ENUM (
+  'CONFIRMED','CHECKED_IN','CHECKED_OUT','CANCELLED','NO_SHOW'
+); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE "RiskLevel" AS ENUM (
-  'EXCELLENT', 'GOOD', 'AVERAGE', 'POOR', 'HIGH_RISK', 'UNREVIEWED'
-);
+DO $$ BEGIN CREATE TYPE "RiskLevel" AS ENUM (
+  'EXCELLENT','GOOD','AVERAGE','POOR','HIGH_RISK','UNREVIEWED'
+); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TYPE "ReviewStatus" AS ENUM (
-  'PUBLISHED', 'FLAGGED', 'REMOVED', 'UNDER_REVIEW'
-);
+DO $$ BEGIN CREATE TYPE "ReviewStatus" AS ENUM (
+  'PUBLISHED','FLAGGED','REMOVED','UNDER_REVIEW'
+); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Add CARAVAN_PARK to existing enum if it was created without it
+DO $$ BEGIN
+  ALTER TYPE "PropertyType" ADD VALUE IF NOT EXISTS 'CARAVAN_PARK';
+EXCEPTION WHEN others THEN NULL; END $$;
 
 -- ── Tables ─────────────────────────────────────────────────────────────────────
 
-CREATE TABLE "Property" (
+CREATE TABLE IF NOT EXISTS "Property" (
   "id"                   TEXT             NOT NULL DEFAULT gen_random_uuid()::text,
   "name"                 TEXT             NOT NULL,
   "type"                 "PropertyType"   NOT NULL,
@@ -75,10 +78,10 @@ CREATE TABLE "Property" (
   "updatedAt"            TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "Property_pkey" PRIMARY KEY ("id")
 );
-CREATE INDEX "Property_city_country_idx" ON "Property"("city", "country");
-CREATE INDEX "Property_status_idx" ON "Property"("status");
+CREATE INDEX IF NOT EXISTS "Property_city_country_idx" ON "Property"("city","country");
+CREATE INDEX IF NOT EXISTS "Property_status_idx"       ON "Property"("status");
 
-CREATE TABLE "User" (
+CREATE TABLE IF NOT EXISTS "User" (
   "id"                 TEXT       NOT NULL DEFAULT gen_random_uuid()::text,
   "email"              TEXT       NOT NULL,
   "password"           TEXT       NOT NULL,
@@ -102,9 +105,9 @@ CREATE TABLE "User" (
   CONSTRAINT "User_propertyId_fkey" FOREIGN KEY ("propertyId")
     REFERENCES "Property"("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
-CREATE INDEX "User_propertyId_idx" ON "User"("propertyId");
+CREATE INDEX IF NOT EXISTS "User_propertyId_idx" ON "User"("propertyId");
 
-CREATE TABLE "Guest" (
+CREATE TABLE IF NOT EXISTS "Guest" (
   "id"            TEXT        NOT NULL DEFAULT gen_random_uuid()::text,
   "firstName"     TEXT        NOT NULL,
   "lastName"      TEXT        NOT NULL,
@@ -122,24 +125,24 @@ CREATE TABLE "Guest" (
   "updatedAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "Guest_pkey" PRIMARY KEY ("id")
 );
-CREATE INDEX "Guest_email_idx"     ON "Guest"("email");
-CREATE INDEX "Guest_phone_idx"     ON "Guest"("phone");
-CREATE INDEX "Guest_riskLevel_idx" ON "Guest"("riskLevel");
+CREATE INDEX IF NOT EXISTS "Guest_email_idx"     ON "Guest"("email");
+CREATE INDEX IF NOT EXISTS "Guest_phone_idx"     ON "Guest"("phone");
+CREATE INDEX IF NOT EXISTS "Guest_riskLevel_idx" ON "Guest"("riskLevel");
 
-CREATE TABLE "GuestPhone" (
+CREATE TABLE IF NOT EXISTS "GuestPhone" (
   "id"        TEXT    NOT NULL DEFAULT gen_random_uuid()::text,
   "guestId"   TEXT    NOT NULL,
   "number"    TEXT    NOT NULL,
   "isPrimary" BOOLEAN NOT NULL DEFAULT false,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "GuestPhone_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "GuestPhone_guestId_number_key" UNIQUE ("guestId", "number"),
+  CONSTRAINT "GuestPhone_guestId_number_key" UNIQUE ("guestId","number"),
   CONSTRAINT "GuestPhone_guestId_fkey" FOREIGN KEY ("guestId")
     REFERENCES "Guest"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
-CREATE INDEX "GuestPhone_number_idx" ON "GuestPhone"("number");
+CREATE INDEX IF NOT EXISTS "GuestPhone_number_idx" ON "GuestPhone"("number");
 
-CREATE TABLE "Booking" (
+CREATE TABLE IF NOT EXISTS "Booking" (
   "id"             TEXT            NOT NULL DEFAULT gen_random_uuid()::text,
   "guestId"        TEXT            NOT NULL,
   "propertyId"     TEXT            NOT NULL,
@@ -162,17 +165,15 @@ CREATE TABLE "Booking" (
   CONSTRAINT "Booking_propertyId_fkey" FOREIGN KEY ("propertyId")
     REFERENCES "Property"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
-CREATE INDEX "Booking_guestId_idx"            ON "Booking"("guestId");
-CREATE INDEX "Booking_propertyId_idx"         ON "Booking"("propertyId");
-CREATE INDEX "Booking_checkIn_idx"            ON "Booking"("checkIn");
-CREATE INDEX "Booking_propertyId_checkIn_idx" ON "Booking"("propertyId", "checkIn");
-CREATE INDEX "Booking_externalId_idx"         ON "Booking"("externalId");
--- Prevents duplicate external bookings per property+source (NULLs are exempt)
-CREATE UNIQUE INDEX "Booking_propertyId_externalId_source_key"
-  ON "Booking"("propertyId", "externalId", "source")
-  WHERE "externalId" IS NOT NULL;
+CREATE INDEX IF NOT EXISTS "Booking_guestId_idx"            ON "Booking"("guestId");
+CREATE INDEX IF NOT EXISTS "Booking_propertyId_idx"         ON "Booking"("propertyId");
+CREATE INDEX IF NOT EXISTS "Booking_checkIn_idx"            ON "Booking"("checkIn");
+CREATE INDEX IF NOT EXISTS "Booking_propertyId_checkIn_idx" ON "Booking"("propertyId","checkIn");
+CREATE INDEX IF NOT EXISTS "Booking_externalId_idx"         ON "Booking"("externalId");
+CREATE UNIQUE INDEX IF NOT EXISTS "Booking_propertyId_externalId_source_key"
+  ON "Booking"("propertyId","externalId","source") WHERE "externalId" IS NOT NULL;
 
-CREATE TABLE "Review" (
+CREATE TABLE IF NOT EXISTS "Review" (
   "id"              TEXT    NOT NULL DEFAULT gen_random_uuid()::text,
   "guestId"         TEXT    NOT NULL,
   "propertyId"      TEXT    NOT NULL,
@@ -197,21 +198,17 @@ CREATE TABLE "Review" (
   "createdAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "Review_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "Review_guestId_fkey" FOREIGN KEY ("guestId")
-    REFERENCES "Guest"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT "Review_propertyId_fkey" FOREIGN KEY ("propertyId")
-    REFERENCES "Property"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT "Review_reviewerId_fkey" FOREIGN KEY ("reviewerId")
-    REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT "Review_bookingId_fkey" FOREIGN KEY ("bookingId")
-    REFERENCES "Booking"("id") ON DELETE SET NULL ON UPDATE CASCADE
+  CONSTRAINT "Review_guestId_fkey"    FOREIGN KEY ("guestId")    REFERENCES "Guest"("id")    ON DELETE RESTRICT  ON UPDATE CASCADE,
+  CONSTRAINT "Review_propertyId_fkey" FOREIGN KEY ("propertyId") REFERENCES "Property"("id") ON DELETE RESTRICT  ON UPDATE CASCADE,
+  CONSTRAINT "Review_reviewerId_fkey" FOREIGN KEY ("reviewerId") REFERENCES "User"("id")     ON DELETE RESTRICT  ON UPDATE CASCADE,
+  CONSTRAINT "Review_bookingId_fkey"  FOREIGN KEY ("bookingId")  REFERENCES "Booking"("id")  ON DELETE SET NULL  ON UPDATE CASCADE
 );
-CREATE INDEX "Review_guestId_idx"    ON "Review"("guestId");
-CREATE INDEX "Review_propertyId_idx" ON "Review"("propertyId");
-CREATE INDEX "Review_reviewerId_idx" ON "Review"("reviewerId");
-CREATE INDEX "Review_status_idx"     ON "Review"("status");
+CREATE INDEX IF NOT EXISTS "Review_guestId_idx"    ON "Review"("guestId");
+CREATE INDEX IF NOT EXISTS "Review_propertyId_idx" ON "Review"("propertyId");
+CREATE INDEX IF NOT EXISTS "Review_reviewerId_idx" ON "Review"("reviewerId");
+CREATE INDEX IF NOT EXISTS "Review_status_idx"     ON "Review"("status");
 
-CREATE TABLE "ApiKey" (
+CREATE TABLE IF NOT EXISTS "ApiKey" (
   "id"          TEXT    NOT NULL DEFAULT gen_random_uuid()::text,
   "propertyId"  TEXT    NOT NULL,
   "key"         TEXT    NOT NULL,
@@ -221,32 +218,32 @@ CREATE TABLE "ApiKey" (
   "expiresAt"   TIMESTAMP(3),
   "isActive"    BOOLEAN NOT NULL DEFAULT true,
   "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT "ApiKey_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "ApiKey_key_key" UNIQUE ("key"),
+  CONSTRAINT "ApiKey_pkey"        PRIMARY KEY ("id"),
+  CONSTRAINT "ApiKey_key_key"     UNIQUE ("key"),
   CONSTRAINT "ApiKey_propertyId_fkey" FOREIGN KEY ("propertyId")
     REFERENCES "Property"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
-CREATE INDEX "ApiKey_propertyId_idx" ON "ApiKey"("propertyId");
+CREATE INDEX IF NOT EXISTS "ApiKey_propertyId_idx" ON "ApiKey"("propertyId");
 
-CREATE TABLE "Integration" (
-  "id"            TEXT           NOT NULL DEFAULT gen_random_uuid()::text,
-  "propertyId"    TEXT           NOT NULL,
+CREATE TABLE IF NOT EXISTS "Integration" (
+  "id"            TEXT            NOT NULL DEFAULT gen_random_uuid()::text,
+  "propertyId"    TEXT            NOT NULL,
   "platform"      "BookingSource" NOT NULL,
   "accessToken"   TEXT,
   "refreshToken"  TEXT,
   "externalId"    TEXT,
   "webhookSecret" TEXT,
-  "isActive"      BOOLEAN        NOT NULL DEFAULT true,
+  "isActive"      BOOLEAN         NOT NULL DEFAULT true,
   "lastSyncAt"    TIMESTAMP(3),
-  "createdAt"     TIMESTAMP(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt"     TIMESTAMP(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT "Integration_pkey" PRIMARY KEY ("id"),
-  CONSTRAINT "Integration_propertyId_platform_key" UNIQUE ("propertyId", "platform"),
+  "createdAt"     TIMESTAMP(3)    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"     TIMESTAMP(3)    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "Integration_pkey"                  PRIMARY KEY ("id"),
+  CONSTRAINT "Integration_propertyId_platform_key" UNIQUE ("propertyId","platform"),
   CONSTRAINT "Integration_propertyId_fkey" FOREIGN KEY ("propertyId")
     REFERENCES "Property"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-CREATE TABLE "AuditLog" (
+CREATE TABLE IF NOT EXISTS "AuditLog" (
   "id"         TEXT NOT NULL DEFAULT gen_random_uuid()::text,
   "userId"     TEXT,
   "action"     TEXT NOT NULL,
@@ -256,15 +253,13 @@ CREATE TABLE "AuditLog" (
   "ipAddress"  TEXT,
   "userAgent"  TEXT,
   "createdAt"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "AuditLog_pkey"      PRIMARY KEY ("id"),
   CONSTRAINT "AuditLog_userId_fkey" FOREIGN KEY ("userId")
     REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
-CREATE INDEX "AuditLog_userId_idx"              ON "AuditLog"("userId");
-CREATE INDEX "AuditLog_resource_resourceId_idx" ON "AuditLog"("resource", "resourceId");
-CREATE INDEX "AuditLog_createdAt_idx"           ON "AuditLog"("createdAt");
-
--- ── Prisma migrations tracking table ──────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS "AuditLog_userId_idx"              ON "AuditLog"("userId");
+CREATE INDEX IF NOT EXISTS "AuditLog_resource_resourceId_idx" ON "AuditLog"("resource","resourceId");
+CREATE INDEX IF NOT EXISTS "AuditLog_createdAt_idx"           ON "AuditLog"("createdAt");
 
 CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
   "id"                  TEXT        NOT NULL,
@@ -278,70 +273,71 @@ CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
   CONSTRAINT "_prisma_migrations_pkey" PRIMARY KEY ("id")
 );
 
--- ── Seed Data ─────────────────────────────────────────────────────────────────
--- Passwords are hashed with bcrypt (cost 12) via pgcrypto.
--- Super Admin  → admin@guestcheck.io      / Admin@GuestCheck123!
--- Manager      → manager@granddemohotel.com / Manager@Demo123!
--- Receptionist → reception@granddemohotel.com / Reception@Demo123!
+-- ── Seed: Demo Property ───────────────────────────────────────────────────────
 
--- Demo property (set to ACTIVE so demo staff can log in immediately)
 INSERT INTO "Property" (
-  "id", "name", "type", "address", "city", "country", "postcode",
-  "phone", "website", "status", "subscriptionTier", "subscriptionStatus",
-  "billingEmail", "createdAt", "updatedAt"
+  "id","name","type","address","city","country","postcode",
+  "phone","website","status","subscriptionTier","subscriptionStatus",
+  "billingEmail","createdAt","updatedAt"
 ) VALUES (
-  'demo-property-001',
-  'The Grand Demo Hotel',
-  'HOTEL',
-  '123 Main Street',
-  'London',
-  'GB',
-  'W1A 1AA',
-  '+44 20 1234 5678',
-  'https://granddemohotel.com',
-  'ACTIVE',
-  'PROFESSIONAL',
-  'ACTIVE',
-  'billing@granddemohotel.com',
-  CURRENT_TIMESTAMP,
-  CURRENT_TIMESTAMP
+  'demo-property-001','The Grand Demo Hotel','HOTEL','123 Main Street',
+  'London','GB','W1A 1AA','+44 20 1234 5678','https://granddemohotel.com',
+  'ACTIVE','PROFESSIONAL','ACTIVE','billing@granddemohotel.com',
+  CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
 ) ON CONFLICT ("id") DO NOTHING;
 
--- Super admin (no propertyId — platform-level access)
+-- ── Seed: Admin + Demo Staff ──────────────────────────────────────────────────
+-- Passwords hashed with bcrypt (blowfish, cost 12) via pgcrypto.
+--
+--   admin@guestcheck.io           →  Admin@GuestCheck123!
+--   manager@granddemohotel.com    →  Manager@Demo123!
+--   reception@granddemohotel.com  →  Reception@Demo123!
+
 INSERT INTO "User" (
-  "id", "email", "password", "firstName", "lastName",
-  "role", "emailVerified", "createdAt", "updatedAt"
-) VALUES (
+  "id","email","password","firstName","lastName",
+  "role","emailVerified","createdAt","updatedAt"
+)
+SELECT
   gen_random_uuid()::text,
   'admin@guestcheck.io',
   crypt('Admin@GuestCheck123!', gen_salt('bf', 12)),
-  'Super', 'Admin',
-  'SUPER_ADMIN', true,
-  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-) ON CONFLICT ("email") DO NOTHING;
+  'Super','Admin',
+  'SUPER_ADMIN',true,
+  CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM "User" WHERE email = 'admin@guestcheck.io');
 
--- Demo property admin
 INSERT INTO "User" (
-  "id", "email", "password", "firstName", "lastName",
-  "role", "propertyId", "emailVerified", "createdAt", "updatedAt"
-) VALUES (
+  "id","email","password","firstName","lastName",
+  "role","propertyId","emailVerified","createdAt","updatedAt"
+)
+SELECT
   gen_random_uuid()::text,
   'manager@granddemohotel.com',
   crypt('Manager@Demo123!', gen_salt('bf', 12)),
-  'Jane', 'Smith',
-  'PROPERTY_ADMIN', 'demo-property-001', true,
-  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-) ON CONFLICT ("email") DO NOTHING;
+  'Jane','Smith',
+  'PROPERTY_ADMIN','demo-property-001',true,
+  CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM "User" WHERE email = 'manager@granddemohotel.com');
 
--- Demo receptionist
 INSERT INTO "User" (
-  "id", "email", "password", "firstName", "lastName",
-  "role", "propertyId", "emailVerified", "createdAt", "updatedAt"
-) VALUES (
+  "id","email","password","firstName","lastName",
+  "role","propertyId","emailVerified","createdAt","updatedAt"
+)
+SELECT
   gen_random_uuid()::text,
   'reception@granddemohotel.com',
   crypt('Reception@Demo123!', gen_salt('bf', 12)),
-  'Tom', 'Jones',
-  'RECEPTIONIST', 'demo-property-001', true,
-  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-) ON CONFLICT ("email") DO NOTHING;
+  'Tom','Jones',
+  'RECEPTIONIST','demo-property-001',true,
+  CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM "User" WHERE email = 'reception@granddemohotel.com');
+
+-- ── Verify the seed worked ─────────────────────────────────────────────────────
+SELECT email, role, "emailVerified", "isActive",
+       left("password", 7) AS hash_prefix  -- should show '$2a$12' for all rows
+FROM "User"
+WHERE email IN (
+  'admin@guestcheck.io',
+  'manager@granddemohotel.com',
+  'reception@granddemohotel.com'
+);
