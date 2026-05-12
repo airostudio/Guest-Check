@@ -103,9 +103,8 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
 });
 
-// Temporary diagnostics endpoint — shows env var state without exposing secrets.
-// Visit /api/debug on your Vercel deployment to see what the server actually has.
-app.get('/api/debug', (_req, res) => {
+// Temporary diagnostics endpoint — tests live DB connection.
+app.get('/api/debug', async (_req, res) => {
   const dbUrl = process.env.DATABASE_URL ?? '';
   let dbParsed: Record<string, string> = { error: 'not set' };
   try {
@@ -122,11 +121,21 @@ app.get('/api/debug', (_req, res) => {
     dbParsed = { error: `parse failed: ${(e as Error).message}` };
   }
 
+  let dbConnection: Record<string, string> = {};
+  try {
+    const { prisma } = await import('./lib/prisma');
+    await prisma.$queryRaw`SELECT 1`;
+    dbConnection = { status: 'connected' };
+  } catch (e) {
+    dbConnection = { status: 'FAILED', error: (e as Error).message };
+  }
+
   res.json({
-    NODE_ENV:     process.env.NODE_ENV     ?? '(not set)',
-    JWT_SECRET:   process.env.JWT_SECRET   ? `[set, ${process.env.JWT_SECRET.length} chars]` : '(not set)',
+    NODE_ENV:     process.env.NODE_ENV   ?? '(not set)',
+    JWT_SECRET:   process.env.JWT_SECRET ? `[set, ${process.env.JWT_SECRET.length} chars]` : '(not set)',
     DATABASE_URL: dbUrl ? '[set]' : '(not set)',
     db: dbParsed,
+    dbConnection,
   });
 });
 
