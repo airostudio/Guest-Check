@@ -4,9 +4,54 @@ import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { emailService } from '../services/email.service';
 import logger from '../utils/logger';
-import prisma from '../lib/prisma';
+import { db } from '../lib/supabase';
 
 const router = Router();
+
+interface PropertyRow {
+  id: string;
+  name: string;
+  type: string;
+  city: string;
+  country: string;
+  status: PropertyStatus;
+  createdAt: string;
+  subscriptionTier?: string;
+  subscriptionStatus?: string;
+  rejectionReason?: string | null;
+}
+
+interface UserRow {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  propertyId: string | null;
+  createdAt: string;
+}
+
+interface ReviewRow {
+  id: string;
+  guestId: string;
+  propertyId: string;
+  reviewerId: string;
+  status: ReviewStatus;
+  flagReason?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+
+async function attachAdminUsers(properties: PropertyRow[]): Promise<(PropertyRow & { users: UserRow[] })[]> {
+  if (properties.length === 0) return [];
+  const ids = properties.map((p) => p.id);
+  const users = await db.select<UserRow>(
+    'User',
+    { propertyId: { in: ids }, role: 'PROPERTY_ADMIN' },
+    { select: 'id,email,firstName,lastName,createdAt,propertyId,role' }
+  );
+  return properties.map((p) => ({ ...p, users: users.filter((u) => u.propertyId === p.id) }));
+}
 
 // ─── Pending Properties ────────────────────────────────────────────────────────
 
@@ -15,18 +60,14 @@ router.get(
   authenticate,
   requireSuperAdmin,
   async (_req: AuthRequest, res: Response): Promise<void> => {
-    const properties = await prisma.property.findMany({
-      where: { status: PropertyStatus.PENDING_VERIFICATION },
-      include: {
-        users: {
-          where: { role: 'PROPERTY_ADMIN' },
-          select: { id: true, email: true, firstName: true, lastName: true, createdAt: true },
-        },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+    const properties = await db.select<PropertyRow>(
+      'Property',
+      { status: PropertyStatus.PENDING_VERIFICATION },
+      { order: 'createdAt.asc' }
+    );
 
-    res.json({ success: true, data: properties });
+    const data = await attachAdminUsers(properties);
+    res.json({ success: true, data });
   }
 );
 
@@ -37,27 +78,23 @@ router.get(
   authenticate,
   requireSuperAdmin,
   async (req: AuthRequest, res: Response): Promise<void> => {
-    const page = parseInt(req.query.page as string || '1', 10);
+    const page = Math.max(1, parseInt(req.query.page as string || '1', 10));
     const limit = Math.min(parseInt(req.query.limit as string || '20', 10), 100);
     const status = req.query.status as PropertyStatus | undefined;
 
-    const [properties, total] = await Promise.all([
-      prisma.property.findMany({
-        where: status ? { status } : undefined,
-        include: {
-          users: { select: { id: true, email: true, role: true } },
-          _count: { select: { reviews: true, bookings: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      prisma.property.count({ where: status ? { status } : undefined }),
-    ]);
+    const filters: Record<string, PropertyStatus> = {};
+    if (status) filters.status = status;
+    const { data: properties, total } = await db.selectAndCount<PropertyRow>(
+      'Property',
+      filters,
+      { order: 'createdAt.desc', limit, offset: (page - 1) * limit }
+    );
+
+    const enriched = await attachAdminUsers(properties);
 
     res.json({
       success: true,
-      data: properties,
+      data: enriched,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   }
@@ -70,23 +107,28 @@ router.post(
   authenticate,
   requireSuperAdmin,
   async (req: AuthRequest, res: Response): Promise<void> => {
-    const property = await prisma.property.update({
-      where: { id: req.params.id },
-      data: {
+    const property = await db.updateOne<PropertyRow>(
+      'Property',
+      { id: req.params.id },
+      {
         status: PropertyStatus.ACTIVE,
-        verifiedAt: new Date(),
+        verifiedAt: new Date().toISOString(),
         verifiedBy: req.user!.id,
-      },
-      include: {
-        users: {
-          where: { role: 'PROPERTY_ADMIN' },
-          select: { email: true, firstName: true },
-        },
-      },
-    });
+        updatedAt: new Date().toISOString(),
+      }
+    );
 
-    // Notify the property admin
-    const admin = property.users[0];
+    if (!property) {
+      res.status(404).json({ success: false, message: 'Property not found' });
+      return;
+    }
+
+    const admins = await db.select<UserRow>(
+      'User',
+      { propertyId: property.id, role: 'PROPERTY_ADMIN' },
+      { select: 'email,firstName', limit: 1 }
+    );
+    const admin = admins[0];
     if (admin) {
       emailService
         .sendPropertyApprovedEmail(admin.email, admin.firstName, property.name)
@@ -108,22 +150,28 @@ router.post(
   async (req: AuthRequest, res: Response): Promise<void> => {
     const { reason } = req.body;
 
-    const property = await prisma.property.update({
-      where: { id: req.params.id },
-      data: {
+    const property = await db.updateOne<PropertyRow>(
+      'Property',
+      { id: req.params.id },
+      {
         status: PropertyStatus.REJECTED,
         rejectionReason: reason || 'Did not meet verification requirements',
         verifiedBy: req.user!.id,
-      },
-      include: {
-        users: {
-          where: { role: 'PROPERTY_ADMIN' },
-          select: { email: true, firstName: true },
-        },
-      },
-    });
+        updatedAt: new Date().toISOString(),
+      }
+    );
 
-    const admin = property.users[0];
+    if (!property) {
+      res.status(404).json({ success: false, message: 'Property not found' });
+      return;
+    }
+
+    const admins = await db.select<UserRow>(
+      'User',
+      { propertyId: property.id, role: 'PROPERTY_ADMIN' },
+      { select: 'email,firstName', limit: 1 }
+    );
+    const admin = admins[0];
     if (admin) {
       emailService
         .sendPropertyRejectedEmail(admin.email, admin.firstName, property.name, reason)
@@ -141,9 +189,9 @@ router.post(
   authenticate,
   requireSuperAdmin,
   async (req: AuthRequest, res: Response): Promise<void> => {
-    await prisma.property.update({
-      where: { id: req.params.id },
-      data: { status: PropertyStatus.SUSPENDED },
+    await db.update('Property', { id: req.params.id }, {
+      status: PropertyStatus.SUSPENDED,
+      updatedAt: new Date().toISOString(),
     });
     res.json({ success: true, message: 'Property suspended' });
   }
@@ -156,15 +204,11 @@ router.get(
   authenticate,
   requireSuperAdmin,
   async (_req: AuthRequest, res: Response): Promise<void> => {
-    const reviews = await prisma.review.findMany({
-      where: { status: ReviewStatus.FLAGGED },
-      include: {
-        guest: { select: { id: true, firstName: true, lastName: true } },
-        property: { select: { id: true, name: true } },
-        reviewer: { select: { id: true, firstName: true, lastName: true, email: true } },
-      },
-      orderBy: { updatedAt: 'asc' },
-    });
+    const reviews = await db.select<ReviewRow>(
+      'Review',
+      { status: ReviewStatus.FLAGGED },
+      { order: 'updatedAt.asc' }
+    );
 
     res.json({ success: true, data: reviews });
   }
@@ -177,21 +221,27 @@ router.post(
   authenticate,
   requireSuperAdmin,
   async (req: AuthRequest, res: Response): Promise<void> => {
-    const { action } = req.body; // 'approve' | 'remove'
+    const { action } = req.body;
 
     const newStatus =
       action === 'approve' ? ReviewStatus.PUBLISHED : ReviewStatus.REMOVED;
 
-    const review = await prisma.review.update({
-      where: { id: req.params.id },
-      data: {
+    const review = await db.updateOne<ReviewRow>(
+      'Review',
+      { id: req.params.id },
+      {
         status: newStatus,
-        moderatedAt: new Date(),
+        moderatedAt: new Date().toISOString(),
         moderatedBy: req.user!.id,
-      },
-    });
+        updatedAt: new Date().toISOString(),
+      }
+    );
 
-    // Refresh guest score if removed
+    if (!review) {
+      res.status(404).json({ success: false, message: 'Review not found' });
+      return;
+    }
+
     if (action === 'remove') {
       const { refreshGuestScore } = await import('./guests');
       refreshGuestScore(review.guestId).catch(console.error);
@@ -216,12 +266,12 @@ router.get(
       flaggedReviews,
       highRiskGuests,
     ] = await Promise.all([
-      prisma.property.count({ where: { status: PropertyStatus.ACTIVE } }),
-      prisma.property.count({ where: { status: PropertyStatus.PENDING_VERIFICATION } }),
-      prisma.guest.count(),
-      prisma.review.count({ where: { status: ReviewStatus.PUBLISHED } }),
-      prisma.review.count({ where: { status: ReviewStatus.FLAGGED } }),
-      prisma.guest.count({ where: { riskLevel: 'HIGH_RISK' } }),
+      db.count('Property', { status: PropertyStatus.ACTIVE }),
+      db.count('Property', { status: PropertyStatus.PENDING_VERIFICATION }),
+      db.count('Guest'),
+      db.count('Review', { status: ReviewStatus.PUBLISHED }),
+      db.count('Review', { status: ReviewStatus.FLAGGED }),
+      db.count('Guest', { riskLevel: 'HIGH_RISK' }),
     ]);
 
     res.json({

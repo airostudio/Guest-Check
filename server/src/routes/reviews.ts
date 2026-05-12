@@ -1,12 +1,66 @@
 import { Router, Response } from 'express';
 import { body, validationResult } from 'express-validator';
+import crypto from 'crypto';
 import { ReviewStatus } from '@prisma/client';
-import { authenticate, requirePropertyAdmin } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { refreshGuestScore } from './guests';
-import prisma from '../lib/prisma';
+import { db } from '../lib/supabase';
 
 const router = Router();
+
+interface ReviewRow {
+  id: string;
+  guestId: string;
+  propertyId: string;
+  reviewerId: string;
+  bookingId: string | null;
+  overallRating: number;
+  cleanliness: number | null;
+  communication: number | null;
+  ruleAdherence: number | null;
+  noiseLevel: number | null;
+  propertyRespect: number | null;
+  publicComment: string | null;
+  privateNote: string | null;
+  wouldWelcomeBack: boolean | null;
+  stayMonth: number | null;
+  stayYear: number | null;
+  isVerifiedStay: boolean;
+  status: ReviewStatus;
+  flagReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface GuestRef {
+  id: string;
+  firstName: string;
+  lastName: string;
+  nationality?: string | null;
+  averageRating?: number | null;
+  riskLevel?: string;
+}
+
+interface PropertyRef {
+  id: string;
+  name: string;
+  city?: string;
+  country?: string;
+}
+
+interface UserRef {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email?: string;
+}
+
+interface BookingRow {
+  id: string;
+  guestId: string;
+  propertyId: string;
+}
 
 // ─── Create Review ────────────────────────────────────────────────────────────
 
@@ -46,85 +100,79 @@ router.post(
       return;
     }
 
-    // Check guest exists
-    const guest = await prisma.guest.findUnique({ where: { id: guestId } });
+    const guest = await db.selectOne<GuestRef>('Guest', { id: guestId }, { select: 'id,firstName,lastName' });
     if (!guest) {
       res.status(404).json({ success: false, message: 'Guest not found' });
       return;
     }
 
-    // Prevent duplicate reviews for same booking
     if (bookingId) {
-      const existing = await prisma.review.findFirst({
-        where: { bookingId, reviewerId: req.user!.id },
-      });
+      const existing = await db.selectOne<ReviewRow>('Review', { bookingId, reviewerId: req.user!.id });
       if (existing) {
         res.status(409).json({ success: false, message: 'You have already reviewed this booking' });
         return;
       }
     }
 
-    // Verify booking belongs to this property (if provided)
     let isVerifiedStay = false;
     if (bookingId) {
-      const booking = await prisma.booking.findFirst({
-        where: { id: bookingId, guestId, propertyId },
-      });
+      const booking = await db.selectOne<BookingRow>('Booking', { id: bookingId, guestId, propertyId });
       isVerifiedStay = !!booking;
     }
 
-    const review = await prisma.review.create({
-      data: {
-        guestId,
-        propertyId,
-        reviewerId: req.user!.id,
-        bookingId: bookingId || null,
-        overallRating,
-        cleanliness: cleanliness ?? null,
-        communication: communication ?? null,
-        ruleAdherence: ruleAdherence ?? null,
-        noiseLevel: noiseLevel ?? null,
-        propertyRespect: propertyRespect ?? null,
-        publicComment: publicComment || null,
-        privateNote: privateNote || null,
-        wouldWelcomeBack: wouldWelcomeBack ?? null,
-        stayMonth: stayMonth ?? null,
-        stayYear: stayYear ?? null,
-        isVerifiedStay,
-      },
-      include: {
-        guest: { select: { id: true, firstName: true, lastName: true } },
-        property: { select: { id: true, name: true } },
-      },
+    const now = new Date().toISOString();
+    const review = await db.insert<ReviewRow>('Review', {
+      id: crypto.randomBytes(12).toString('base64url'),
+      guestId,
+      propertyId,
+      reviewerId: req.user!.id,
+      bookingId: bookingId || null,
+      overallRating,
+      cleanliness: cleanliness ?? null,
+      communication: communication ?? null,
+      ruleAdherence: ruleAdherence ?? null,
+      noiseLevel: noiseLevel ?? null,
+      propertyRespect: propertyRespect ?? null,
+      publicComment: publicComment || null,
+      privateNote: privateNote || null,
+      wouldWelcomeBack: wouldWelcomeBack ?? null,
+      stayMonth: stayMonth ?? null,
+      stayYear: stayYear ?? null,
+      isVerifiedStay,
+      status: ReviewStatus.PUBLISHED,
+      createdAt: now,
+      updatedAt: now,
     });
 
-    // Refresh guest aggregate score asynchronously
+    const property = await db.selectOne<PropertyRef>('Property', { id: propertyId }, { select: 'id,name' });
+
     refreshGuestScore(guestId).catch(console.error);
 
-    res.status(201).json({ success: true, data: review });
+    res.status(201).json({ success: true, data: { ...review, guest, property } });
   }
 );
 
 // ─── Get Review ───────────────────────────────────────────────────────────────
 
 router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const review = await prisma.review.findUnique({
-    where: { id: req.params.id },
-    include: {
-      guest: { select: { id: true, firstName: true, lastName: true, riskLevel: true } },
-      property: { select: { id: true, name: true, city: true, country: true } },
-      reviewer: { select: { id: true, firstName: true, lastName: true } },
-    },
-  });
+  const review = await db.selectOne<ReviewRow>('Review', { id: req.params.id });
 
   if (!review) {
     res.status(404).json({ success: false, message: 'Review not found' });
     return;
   }
 
-  // Only show private note to the reviewing property
+  const [guest, property, reviewer] = await Promise.all([
+    db.selectOne<GuestRef>('Guest', { id: review.guestId }, { select: 'id,firstName,lastName,riskLevel' }),
+    db.selectOne<PropertyRef>('Property', { id: review.propertyId }, { select: 'id,name,city,country' }),
+    db.selectOne<UserRef>('User', { id: review.reviewerId }, { select: 'id,firstName,lastName' }),
+  ]);
+
   const sanitized = {
     ...review,
+    guest,
+    property,
+    reviewer,
     privateNote:
       review.propertyId === req.user!.propertyId || req.user!.role === 'SUPER_ADMIN'
         ? review.privateNote
@@ -146,31 +194,39 @@ router.get(
       return;
     }
 
-    const page = parseInt(req.query.page as string || '1', 10);
+    const page = Math.max(1, parseInt(req.query.page as string || '1', 10));
     const limit = Math.min(parseInt(req.query.limit as string || '20', 10), 50);
 
-    const [reviews, total] = await Promise.all([
-      prisma.review.findMany({
-        where: { propertyId, status: ReviewStatus.PUBLISHED },
-        include: {
-          guest: {
-            select: {
-              id: true, firstName: true, lastName: true,
-              nationality: true, averageRating: true, riskLevel: true,
-            },
-          },
-          reviewer: { select: { id: true, firstName: true, lastName: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      prisma.review.count({ where: { propertyId, status: ReviewStatus.PUBLISHED } }),
+    const { data: reviews, total } = await db.selectAndCount<ReviewRow>(
+      'Review',
+      { propertyId, status: ReviewStatus.PUBLISHED },
+      { order: 'createdAt.desc', limit, offset: (page - 1) * limit }
+    );
+
+    const guestIds = Array.from(new Set(reviews.map((r) => r.guestId)));
+    const reviewerIds = Array.from(new Set(reviews.map((r) => r.reviewerId)));
+
+    const [guests, reviewers] = await Promise.all([
+      guestIds.length
+        ? db.select<GuestRef>('Guest', { id: { in: guestIds } }, { select: 'id,firstName,lastName,nationality,averageRating,riskLevel' })
+        : Promise.resolve([] as GuestRef[]),
+      reviewerIds.length
+        ? db.select<UserRef>('User', { id: { in: reviewerIds } }, { select: 'id,firstName,lastName' })
+        : Promise.resolve([] as UserRef[]),
     ]);
+
+    const gById = new Map(guests.map((g) => [g.id, g]));
+    const uById = new Map(reviewers.map((u) => [u.id, u]));
+
+    const enriched = reviews.map((r) => ({
+      ...r,
+      guest: gById.get(r.guestId) ?? null,
+      reviewer: uById.get(r.reviewerId) ?? null,
+    }));
 
     res.json({
       success: true,
-      data: reviews,
+      data: enriched,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   }
@@ -182,19 +238,18 @@ router.patch(
   '/:id',
   authenticate,
   async (req: AuthRequest, res: Response): Promise<void> => {
-    const review = await prisma.review.findUnique({ where: { id: req.params.id } });
+    const review = await db.selectOne<ReviewRow>('Review', { id: req.params.id });
 
     if (!review) {
       res.status(404).json({ success: false, message: 'Review not found' });
       return;
     }
 
-    // Only the reviewer or property admin can edit, and only within 30 days
     const isReviewer = review.reviewerId === req.user!.id;
     const isPropertyAdmin =
       review.propertyId === req.user!.propertyId && req.user!.role === 'PROPERTY_ADMIN';
     const withinEditWindow =
-      new Date().getTime() - review.createdAt.getTime() < 30 * 24 * 60 * 60 * 1000;
+      Date.now() - new Date(review.createdAt).getTime() < 30 * 24 * 60 * 60 * 1000;
 
     if (!isReviewer && !isPropertyAdmin) {
       res.status(403).json({ success: false, message: 'You cannot edit this review' });
@@ -211,20 +266,18 @@ router.patch(
       noiseLevel, propertyRespect, publicComment, privateNote, wouldWelcomeBack,
     } = req.body;
 
-    const updated = await prisma.review.update({
-      where: { id: review.id },
-      data: {
-        ...(overallRating !== undefined && { overallRating }),
-        ...(cleanliness !== undefined && { cleanliness }),
-        ...(communication !== undefined && { communication }),
-        ...(ruleAdherence !== undefined && { ruleAdherence }),
-        ...(noiseLevel !== undefined && { noiseLevel }),
-        ...(propertyRespect !== undefined && { propertyRespect }),
-        ...(publicComment !== undefined && { publicComment }),
-        ...(privateNote !== undefined && { privateNote }),
-        ...(wouldWelcomeBack !== undefined && { wouldWelcomeBack }),
-      },
-    });
+    const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+    if (overallRating !== undefined) patch.overallRating = overallRating;
+    if (cleanliness !== undefined) patch.cleanliness = cleanliness;
+    if (communication !== undefined) patch.communication = communication;
+    if (ruleAdherence !== undefined) patch.ruleAdherence = ruleAdherence;
+    if (noiseLevel !== undefined) patch.noiseLevel = noiseLevel;
+    if (propertyRespect !== undefined) patch.propertyRespect = propertyRespect;
+    if (publicComment !== undefined) patch.publicComment = publicComment;
+    if (privateNote !== undefined) patch.privateNote = privateNote;
+    if (wouldWelcomeBack !== undefined) patch.wouldWelcomeBack = wouldWelcomeBack;
+
+    const updated = await db.updateOne<ReviewRow>('Review', { id: review.id }, patch);
 
     refreshGuestScore(review.guestId).catch(console.error);
 
@@ -240,7 +293,7 @@ router.post(
   async (req: AuthRequest, res: Response): Promise<void> => {
     const { reason } = req.body;
 
-    const review = await prisma.review.findUnique({ where: { id: req.params.id } });
+    const review = await db.selectOne<ReviewRow>('Review', { id: req.params.id });
     if (!review) {
       res.status(404).json({ success: false, message: 'Review not found' });
       return;
@@ -251,12 +304,10 @@ router.post(
       return;
     }
 
-    await prisma.review.update({
-      where: { id: review.id },
-      data: {
-        status: ReviewStatus.FLAGGED,
-        flagReason: reason || 'Flagged for review',
-      },
+    await db.update('Review', { id: review.id }, {
+      status: ReviewStatus.FLAGGED,
+      flagReason: reason || 'Flagged for review',
+      updatedAt: new Date().toISOString(),
     });
 
     res.json({ success: true, message: 'Review flagged for moderation' });
@@ -275,40 +326,54 @@ router.get(
       return;
     }
 
-    const [total, avgResult, riskBreakdown, recentActivity] = await Promise.all([
-      prisma.review.count({ where: { propertyId, status: ReviewStatus.PUBLISHED } }),
-      prisma.review.aggregate({
-        where: { propertyId, status: ReviewStatus.PUBLISHED },
-        _avg: { overallRating: true, cleanliness: true, communication: true, ruleAdherence: true },
-      }),
-      prisma.guest.groupBy({
-        by: ['riskLevel'],
-        where: {
-          reviews: { some: { propertyId, status: ReviewStatus.PUBLISHED } },
-        },
-        _count: { riskLevel: true },
-      }),
-      prisma.review.findMany({
-        where: { propertyId, status: ReviewStatus.PUBLISHED },
-        select: {
-          id: true,
-          overallRating: true,
-          publicComment: true,
-          createdAt: true,
-          guest: { select: { id: true, firstName: true, lastName: true, riskLevel: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-      }),
-    ]);
+    const reviews = await db.select<ReviewRow>(
+      'Review',
+      { propertyId, status: ReviewStatus.PUBLISHED },
+      { select: 'id,overallRating,cleanliness,communication,ruleAdherence,publicComment,createdAt,guestId' }
+    );
+
+    const total = reviews.length;
+    const avg = (key: keyof ReviewRow) => {
+      const vals = reviews.map((r) => r[key]).filter((v): v is number => typeof v === 'number');
+      return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+    };
+
+    const recent = [...reviews]
+      .sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1))
+      .slice(0, 5);
+    const recentGuestIds = Array.from(new Set(recent.map((r) => r.guestId)));
+    const recentGuests = recentGuestIds.length
+      ? await db.select<GuestRef>('Guest', { id: { in: recentGuestIds } }, { select: 'id,firstName,lastName,riskLevel' })
+      : [];
+    const gById = new Map(recentGuests.map((g) => [g.id, g]));
+
+    const allGuestIds = Array.from(new Set(reviews.map((r) => r.guestId)));
+    const guestRiskRows = allGuestIds.length
+      ? await db.select<{ riskLevel: string }>('Guest', { id: { in: allGuestIds } }, { select: 'riskLevel' })
+      : [];
+    const riskBreakdown = guestRiskRows.reduce<Record<string, number>>((acc, g) => {
+      acc[g.riskLevel] = (acc[g.riskLevel] ?? 0) + 1;
+      return acc;
+    }, {});
 
     res.json({
       success: true,
       data: {
         totalReviews: total,
-        averages: avgResult._avg,
-        riskBreakdown,
-        recentActivity,
+        averages: {
+          overallRating: avg('overallRating'),
+          cleanliness: avg('cleanliness'),
+          communication: avg('communication'),
+          ruleAdherence: avg('ruleAdherence'),
+        },
+        riskBreakdown: Object.entries(riskBreakdown).map(([riskLevel, count]) => ({ riskLevel, _count: { riskLevel: count } })),
+        recentActivity: recent.map((r) => ({
+          id: r.id,
+          overallRating: r.overallRating,
+          publicComment: r.publicComment,
+          createdAt: r.createdAt,
+          guest: gById.get(r.guestId) ?? null,
+        })),
       },
     });
   }

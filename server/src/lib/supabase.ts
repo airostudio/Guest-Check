@@ -32,7 +32,13 @@ function formatValue(v: unknown): string {
   return String(v);
 }
 
-type Filter = string | number | boolean | Date | null | { gt?: unknown; lt?: unknown; gte?: unknown; lte?: unknown; neq?: unknown; in?: unknown[] };
+type Filter =
+  | string
+  | number
+  | boolean
+  | Date
+  | null
+  | { gt?: unknown; lt?: unknown; gte?: unknown; lte?: unknown; neq?: unknown; in?: unknown[]; ilike?: string; like?: string };
 
 function buildFilters(filters: Record<string, Filter>): string {
   const params: string[] = [];
@@ -55,12 +61,18 @@ function buildFilters(filters: Record<string, Filter>): string {
   return params.join('&');
 }
 
-async function request<T = unknown>(
+interface RawResponse<T> {
+  data: T;
+  status: number;
+  contentRange: string | null;
+}
+
+async function rawRequest<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
   extraHeaders: Record<string, string> = {}
-): Promise<T> {
+): Promise<RawResponse<T>> {
   const url = `${resolveSupabaseUrl()}/rest/v1/${path}`;
   const key = getKey();
   const res = await fetch(url, {
@@ -87,13 +99,25 @@ async function request<T = unknown>(
     (err as Error & { code?: string; status?: number }).status = res.status;
     throw err;
   }
-  return data as T;
+  return { data: data as T, status: res.status, contentRange: res.headers.get('content-range') };
+}
+
+async function request<T = unknown>(
+  method: string,
+  path: string,
+  body?: unknown,
+  extraHeaders: Record<string, string> = {}
+): Promise<T> {
+  const r = await rawRequest<T>(method, path, body, extraHeaders);
+  return r.data;
 }
 
 export interface SelectOptions {
   select?: string;
   limit?: number;
+  offset?: number;
   order?: string;
+  or?: string;
 }
 
 export const db = {
@@ -103,8 +127,10 @@ export const db = {
     options: SelectOptions = {}
   ): Promise<T[]> {
     const parts = [buildFilters(filters)];
+    if (options.or) parts.push(`or=(${options.or})`);
     if (options.select) parts.push(`select=${encodeURIComponent(options.select)}`);
-    if (options.limit) parts.push(`limit=${options.limit}`);
+    if (options.limit !== undefined) parts.push(`limit=${options.limit}`);
+    if (options.offset !== undefined) parts.push(`offset=${options.offset}`);
     if (options.order) parts.push(`order=${encodeURIComponent(options.order)}`);
     const query = parts.filter(Boolean).join('&');
     const path = `${table}${query ? '?' + query : ''}`;
@@ -118,6 +144,36 @@ export const db = {
   ): Promise<T | null> {
     const rows = await db.select<T>(table, filters, { ...options, limit: 1 });
     return rows[0] ?? null;
+  },
+
+  async selectAndCount<T = Record<string, unknown>>(
+    table: string,
+    filters: Record<string, Filter> = {},
+    options: SelectOptions = {}
+  ): Promise<{ data: T[]; total: number }> {
+    const parts = [buildFilters(filters)];
+    if (options.or) parts.push(`or=(${options.or})`);
+    if (options.select) parts.push(`select=${encodeURIComponent(options.select)}`);
+    if (options.limit !== undefined) parts.push(`limit=${options.limit}`);
+    if (options.offset !== undefined) parts.push(`offset=${options.offset}`);
+    if (options.order) parts.push(`order=${encodeURIComponent(options.order)}`);
+    const query = parts.filter(Boolean).join('&');
+    const path = `${table}${query ? '?' + query : ''}`;
+    const r = await rawRequest<T[]>('GET', path, undefined, { Prefer: 'count=exact' });
+    // Content-Range: "0-19/123"  →  total = 123
+    const total = r.contentRange ? parseInt(r.contentRange.split('/')[1] ?? '0', 10) : r.data.length;
+    return { data: r.data, total };
+  },
+
+  async count(table: string, filters: Record<string, Filter> = {}, options: { or?: string } = {}): Promise<number> {
+    const parts = [buildFilters(filters)];
+    if (options.or) parts.push(`or=(${options.or})`);
+    parts.push('select=id');
+    parts.push('limit=1');
+    const query = parts.filter(Boolean).join('&');
+    const path = `${table}${query ? '?' + query : ''}`;
+    const r = await rawRequest<unknown[]>('GET', path, undefined, { Prefer: 'count=exact' });
+    return r.contentRange ? parseInt(r.contentRange.split('/')[1] ?? '0', 10) : 0;
   },
 
   async insert<T = Record<string, unknown>>(
@@ -135,6 +191,15 @@ export const db = {
   ): Promise<T[]> {
     const query = buildFilters(filters);
     return request<T[]>('PATCH', `${table}?${query}`, data);
+  },
+
+  async updateOne<T = Record<string, unknown>>(
+    table: string,
+    filters: Record<string, Filter>,
+    data: Record<string, unknown>
+  ): Promise<T | null> {
+    const rows = await db.update<T>(table, filters, data);
+    return rows[0] ?? null;
   },
 
   async delete(table: string, filters: Record<string, Filter>): Promise<void> {
