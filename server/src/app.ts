@@ -97,11 +97,44 @@ if (config.env !== 'test') {
   );
 }
 
-// ─── Health Check ─────────────────────────────────────────────────────────────
+// ─── Health / Diagnostics ─────────────────────────────────────────────────────
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
 });
+
+// Temporary diagnostics endpoint — shows env var state without exposing secrets.
+// Visit /api/debug on your Vercel deployment to see what the server actually has.
+app.get('/api/debug', (_req, res) => {
+  const dbUrl = process.env.DATABASE_URL ?? '';
+  let dbParsed: Record<string, string> = { error: 'not set' };
+  try {
+    const u = new URL(dbUrl);
+    dbParsed = {
+      host: u.hostname,
+      port: u.port,
+      database: u.pathname.replace('/', ''),
+      user: u.username,
+      password: u.password ? `[set, ${u.password.length} chars]` : '[empty]',
+      params: u.search,
+    };
+  } catch (e) {
+    dbParsed = { error: `parse failed: ${(e as Error).message}` };
+  }
+
+  res.json({
+    NODE_ENV:     process.env.NODE_ENV     ?? '(not set)',
+    JWT_SECRET:   process.env.JWT_SECRET   ? `[set, ${process.env.JWT_SECRET.length} chars]` : '(not set)',
+    DATABASE_URL: dbUrl ? '[set]' : '(not set)',
+    DB_HOST:      process.env.DB_HOST      ?? '(not set)',
+    DB_PORT:      process.env.DB_PORT      ?? '(not set)',
+    DB_USER:      process.env.DB_USER      ?? '(not set)',
+    DB_PASSWORD:  process.env.DB_PASSWORD  ? `[set, ${process.env.DB_PASSWORD.length} chars]` : '(not set)',
+    DB_NAME:      process.env.DB_NAME      ?? '(not set)',
+    db: dbParsed,
+  });
+});
+
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
