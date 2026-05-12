@@ -1,5 +1,12 @@
 import { PrismaClient } from '@prisma/client';
 
+// Supabase requires SSL. Append sslmode=require if not already in the URL.
+const rawUrl = process.env.DATABASE_URL ?? '';
+if (rawUrl && !rawUrl.includes('sslmode=')) {
+  const sep = rawUrl.includes('?') ? '&' : '?';
+  process.env.DATABASE_URL = `${rawUrl}${sep}sslmode=require`;
+}
+
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
