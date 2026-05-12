@@ -5,9 +5,20 @@ import { AuthRequest } from '../types';
 import { stripeService } from '../services/stripe.service';
 import config from '../config/config';
 import logger from '../utils/logger';
-import prisma from '../lib/prisma';
+import { db } from '../lib/supabase';
 
 const router = Router();
+
+interface PropertyRow {
+  id: string;
+  name: string;
+  billingEmail: string | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  subscriptionTier: SubscriptionTier;
+  subscriptionStatus: SubscriptionStatus;
+  trialEndsAt: string | null;
+}
 
 // ─── Plan Definitions ─────────────────────────────────────────────────────────
 
@@ -90,7 +101,7 @@ router.post(
       return;
     }
 
-    const property = await prisma.property.findUnique({ where: { id: propertyId } });
+    const property = await db.selectOne<PropertyRow>('Property', { id: propertyId });
     if (!property) {
       res.status(404).json({ success: false, message: 'Property not found' });
       return;
@@ -102,7 +113,6 @@ router.post(
       return;
     }
 
-    // Create or reuse Stripe customer
     let customerId = property.stripeCustomerId;
     if (!customerId) {
       const customer = await stripeService.createCustomer(
@@ -111,9 +121,9 @@ router.post(
         propertyId
       );
       customerId = customer.id;
-      await prisma.property.update({
-        where: { id: propertyId },
-        data: { stripeCustomerId: customerId },
+      await db.update('Property', { id: propertyId }, {
+        stripeCustomerId: customerId,
+        updatedAt: new Date().toISOString(),
       });
     }
 
@@ -137,7 +147,7 @@ router.post(
   requirePropertyAdmin,
   async (req: AuthRequest, res: Response): Promise<void> => {
     const propertyId = req.user!.propertyId;
-    const property = await prisma.property.findUnique({ where: { id: propertyId! } });
+    const property = await db.selectOne<PropertyRow>('Property', { id: propertyId! });
 
     if (!property?.stripeCustomerId) {
       res.status(400).json({ success: false, message: 'No active subscription found' });
@@ -197,14 +207,12 @@ router.post(
             paused: SubscriptionStatus.PAUSED,
           };
 
-          await prisma.property.update({
-            where: { id: propertyId },
-            data: {
-              stripeSubscriptionId: sub.id,
-              subscriptionTier: tier,
-              subscriptionStatus: statusMap[sub.status] || SubscriptionStatus.ACTIVE,
-              trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000) : null,
-            },
+          await db.update('Property', { id: propertyId }, {
+            stripeSubscriptionId: sub.id,
+            subscriptionTier: tier,
+            subscriptionStatus: statusMap[sub.status] || SubscriptionStatus.ACTIVE,
+            trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
+            updatedAt: new Date().toISOString(),
           });
           break;
         }
@@ -214,13 +222,11 @@ router.post(
           const propertyId = sub.metadata?.propertyId;
           if (!propertyId) break;
 
-          await prisma.property.update({
-            where: { id: propertyId },
-            data: {
-              subscriptionTier: SubscriptionTier.FREE_TRIAL,
-              subscriptionStatus: SubscriptionStatus.CANCELLED,
-              stripeSubscriptionId: null,
-            },
+          await db.update('Property', { id: propertyId }, {
+            subscriptionTier: SubscriptionTier.FREE_TRIAL,
+            subscriptionStatus: SubscriptionStatus.CANCELLED,
+            stripeSubscriptionId: null,
+            updatedAt: new Date().toISOString(),
           });
           break;
         }
@@ -229,9 +235,9 @@ router.post(
           const invoice = event.data.object as import('stripe').Stripe.Invoice;
           const customerId = invoice.customer as string;
           if (customerId) {
-            await prisma.property.updateMany({
-              where: { stripeCustomerId: customerId },
-              data: { subscriptionStatus: SubscriptionStatus.PAST_DUE },
+            await db.update('Property', { stripeCustomerId: customerId }, {
+              subscriptionStatus: SubscriptionStatus.PAST_DUE,
+              updatedAt: new Date().toISOString(),
             });
           }
           break;
@@ -257,15 +263,11 @@ router.get(
       return;
     }
 
-    const property = await prisma.property.findUnique({
-      where: { id: propertyId },
-      select: {
-        subscriptionTier: true,
-        subscriptionStatus: true,
-        trialEndsAt: true,
-        stripeSubscriptionId: true,
-      },
-    });
+    const property = await db.selectOne<PropertyRow>(
+      'Property',
+      { id: propertyId },
+      { select: 'subscriptionTier,subscriptionStatus,trialEndsAt,stripeSubscriptionId' }
+    );
 
     const plan = PLANS.find((p) => p.tier === property?.subscriptionTier);
 

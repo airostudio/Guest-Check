@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import { Prisma } from '@prisma/client';
 import logger from '../utils/logger';
 
 export class AppError extends Error {
@@ -33,24 +32,6 @@ export const errorHandler = (
       message: err.message,
     });
     return;
-  }
-
-  // Prisma errors
-  if (err instanceof Prisma.PrismaClientKnownRequestError) {
-    if (err.code === 'P2002') {
-      res.status(409).json({
-        success: false,
-        message: 'A record with this information already exists',
-      });
-      return;
-    }
-    if (err.code === 'P2025') {
-      res.status(404).json({
-        success: false,
-        message: 'Record not found',
-      });
-      return;
-    }
   }
 
   // Validation errors from express-validator

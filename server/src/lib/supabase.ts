@@ -32,7 +32,7 @@ function formatValue(v: unknown): string {
   return String(v);
 }
 
-type Filter =
+export type Filter =
   | string
   | number
   | boolean

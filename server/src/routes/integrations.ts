@@ -1,36 +1,64 @@
 import { Router, Request, Response } from 'express';
-import { BookingSource, BookingStatus } from '@prisma/client';
+import { BookingSource, BookingStatus, RiskLevel } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { authenticate, requirePropertyAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import logger from '../utils/logger';
-import prisma from '../lib/prisma';
+import { db } from '../lib/supabase';
 
 const router = Router();
+
+interface ApiKeyRow {
+  id: string;
+  propertyId: string;
+  name: string;
+  key: string;
+  permissions: string[];
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+interface IntegrationRow {
+  id: string;
+  propertyId: string;
+  platform: BookingSource;
+  accessToken: string | null;
+  externalId: string | null;
+  webhookSecret: string | null;
+  isActive: boolean;
+  lastSyncAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface GuestRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string | null;
+  phone: string | null;
+  nationality: string | null;
+}
+
+interface BookingRow {
+  id: string;
+  guestId: string;
+  propertyId: string;
+}
 
 // ─── API Key Management ───────────────────────────────────────────────────────
 
 router.get('/api-keys', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const keys = await prisma.apiKey.findMany({
-    where: { propertyId: req.user!.propertyId! },
-    select: {
-      id: true,
-      name: true,
-      key: true,
-      permissions: true,
-      lastUsedAt: true,
-      expiresAt: true,
-      isActive: true,
-      createdAt: true,
-    },
-  });
+  const keys = await db.select<ApiKeyRow>(
+    'ApiKey',
+    { propertyId: req.user!.propertyId! },
+    { select: 'id,name,key,permissions,lastUsedAt,expiresAt,isActive,createdAt' }
+  );
 
-  // Mask the key - only show last 8 chars
-  const masked = keys.map((k) => ({
-    ...k,
-    key: `gc_...${k.key.slice(-8)}`,
-  }));
+  const masked = keys.map((k) => ({ ...k, key: `gc_...${k.key.slice(-8)}` }));
 
   res.json({ success: true, data: masked });
 });
@@ -45,20 +73,20 @@ router.post(
 
     const key = `gc_live_${uuidv4().replace(/-/g, '')}`;
     const expiresAt = expiresInDays
-      ? new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
+      ? new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString()
       : null;
 
-    const apiKey = await prisma.apiKey.create({
-      data: {
-        propertyId,
-        key,
-        name: name || 'Default API Key',
-        permissions: permissions || ['read_reviews', 'write_bookings'],
-        expiresAt,
-      },
+    const apiKey = await db.insert<ApiKeyRow>('ApiKey', {
+      id: crypto.randomBytes(12).toString('base64url'),
+      propertyId,
+      key,
+      name: name || 'Default API Key',
+      permissions: permissions || ['read_reviews', 'write_bookings'],
+      expiresAt,
+      isActive: true,
+      createdAt: new Date().toISOString(),
     });
 
-    // Return the full key ONCE - it won't be shown again
     res.status(201).json({
       success: true,
       data: apiKey,
@@ -72,10 +100,10 @@ router.delete(
   authenticate,
   requirePropertyAdmin,
   async (req: AuthRequest, res: Response): Promise<void> => {
-    await prisma.apiKey.updateMany({
-      where: { id: req.params.id, propertyId: req.user!.propertyId! },
-      data: { isActive: false },
-    });
+    await db.update('ApiKey',
+      { id: req.params.id, propertyId: req.user!.propertyId! },
+      { isActive: false }
+    );
     res.json({ success: true, message: 'API key revoked' });
   }
 );
@@ -83,17 +111,11 @@ router.delete(
 // ─── Platform Integrations ────────────────────────────────────────────────────
 
 router.get('/platforms', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const integrations = await prisma.integration.findMany({
-    where: { propertyId: req.user!.propertyId! },
-    select: {
-      id: true,
-      platform: true,
-      isActive: true,
-      lastSyncAt: true,
-      externalId: true,
-      createdAt: true,
-    },
-  });
+  const integrations = await db.select<IntegrationRow>(
+    'Integration',
+    { propertyId: req.user!.propertyId! },
+    { select: 'id,platform,isActive,lastSyncAt,externalId,createdAt' }
+  );
   res.json({ success: true, data: integrations });
 });
 
@@ -106,18 +128,34 @@ router.post(
     const { accessToken, externalId } = req.body;
     const propertyId = req.user!.propertyId!;
     const webhookSecret = crypto.randomBytes(32).toString('hex');
+    const now = new Date().toISOString();
 
-    const integration = await prisma.integration.upsert({
-      where: { propertyId_platform: { propertyId, platform: platform as BookingSource } },
-      update: { accessToken, externalId, isActive: true, webhookSecret },
-      create: {
+    const existing = await db.selectOne<IntegrationRow>(
+      'Integration',
+      { propertyId, platform: platform as BookingSource }
+    );
+
+    let integration: IntegrationRow;
+    if (existing) {
+      const updated = await db.updateOne<IntegrationRow>(
+        'Integration',
+        { id: existing.id },
+        { accessToken, externalId, isActive: true, webhookSecret, updatedAt: now }
+      );
+      integration = updated ?? existing;
+    } else {
+      integration = await db.insert<IntegrationRow>('Integration', {
+        id: crypto.randomBytes(12).toString('base64url'),
         propertyId,
         platform: platform as BookingSource,
         accessToken,
         externalId,
         webhookSecret,
-      },
-    });
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
 
     res.json({
       success: true,
@@ -144,9 +182,10 @@ router.post(
       const externalPropertyId = data ? String(data.hotel_id || '') : '';
 
       if (externalPropertyId) {
-        const integration = await prisma.integration.findFirst({
-          where: { platform: BookingSource.BOOKING_COM, externalId: externalPropertyId, isActive: true },
-        });
+        const integration = await db.selectOne<IntegrationRow>(
+          'Integration',
+          { platform: BookingSource.BOOKING_COM, externalId: externalPropertyId, isActive: true }
+        );
 
         if (integration?.webhookSecret) {
           if (!signature) {
@@ -180,14 +219,56 @@ router.post(
   }
 );
 
+async function findOrCreateGuest(input: {
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  nationality?: string;
+}): Promise<GuestRow> {
+  let guest: GuestRow | null = null;
+  if (input.email) {
+    guest = await db.selectOne<GuestRow>('Guest', { email: input.email });
+  }
+  if (!guest && input.phone) {
+    guest = await db.selectOne<GuestRow>('Guest', { phone: input.phone });
+  }
+  if (guest) return guest;
+
+  const now = new Date().toISOString();
+  return db.insert<GuestRow>('Guest', {
+    id: crypto.randomBytes(12).toString('base64url'),
+    firstName: input.firstName,
+    lastName: input.lastName,
+    email: input.email ?? null,
+    phone: input.phone ?? null,
+    nationality: input.nationality ?? null,
+    totalReviews: 0,
+    riskLevel: RiskLevel.UNREVIEWED,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+async function upsertBooking(id: string, createData: Record<string, unknown>, updateData: Record<string, unknown>): Promise<void> {
+  const existing = await db.selectOne<BookingRow>('Booking', { id });
+  const now = new Date().toISOString();
+  if (existing) {
+    await db.update('Booking', { id }, { ...updateData, updatedAt: now });
+  } else {
+    await db.insert('Booking', { id, ...createData, createdAt: now, updatedAt: now });
+  }
+}
+
 async function processBookingComReservation(payload: Record<string, unknown>) {
   const data = payload.data as Record<string, unknown>;
   if (!data) return;
 
   const externalPropertyId = String(data.hotel_id || '');
-  const integration = await prisma.integration.findFirst({
-    where: { platform: BookingSource.BOOKING_COM, externalId: externalPropertyId, isActive: true },
-  });
+  const integration = await db.selectOne<IntegrationRow>(
+    'Integration',
+    { platform: BookingSource.BOOKING_COM, externalId: externalPropertyId, isActive: true }
+  );
 
   if (!integration) {
     logger.warn('No integration found for Booking.com property', { externalPropertyId });
@@ -198,40 +279,28 @@ async function processBookingComReservation(payload: Record<string, unknown>) {
   const bookingData = data.booking as Record<string, unknown> | undefined;
   if (!guestData || !bookingData) return;
 
-  let guest = await prisma.guest.findFirst({
-    where: { email: String(guestData.email || '') },
+  const guest = await findOrCreateGuest({
+    firstName: String(guestData.first_name || ''),
+    lastName: String(guestData.last_name || ''),
+    email: guestData.email ? String(guestData.email) : undefined,
+    phone: guestData.phone ? String(guestData.phone) : undefined,
+    nationality: guestData.nationality ? String(guestData.nationality) : undefined,
   });
 
-  if (!guest) {
-    guest = await prisma.guest.create({
-      data: {
-        firstName: String(guestData.first_name || ''),
-        lastName: String(guestData.last_name || ''),
-        email: guestData.email ? String(guestData.email) : undefined,
-        phone: guestData.phone ? String(guestData.phone) : undefined,
-        nationality: guestData.nationality ? String(guestData.nationality) : undefined,
-      },
-    });
-  }
+  const status = mapBookingComStatus(String(bookingData.status || ''));
+  const bookingId = `bkgcom_${String(bookingData.id || '')}`;
 
-  await prisma.booking.upsert({
-    where: {
-      id: `bkgcom_${String(bookingData.id || '')}`,
-    },
-    update: {
-      status: mapBookingComStatus(String(bookingData.status || '')),
-    },
-    create: {
-      id: `bkgcom_${String(bookingData.id || '')}`,
-      guestId: guest.id,
-      propertyId: integration.propertyId,
-      checkIn: new Date(String(bookingData.check_in || '')),
-      checkOut: new Date(String(bookingData.check_out || '')),
-      source: BookingSource.BOOKING_COM,
-      externalId: String(bookingData.id || ''),
-      status: mapBookingComStatus(String(bookingData.status || '')),
-    },
-  });
+  await upsertBooking(bookingId, {
+    guestId: guest.id,
+    propertyId: integration.propertyId,
+    checkIn: new Date(String(bookingData.check_in || '')).toISOString(),
+    checkOut: new Date(String(bookingData.check_out || '')).toISOString(),
+    source: BookingSource.BOOKING_COM,
+    externalId: String(bookingData.id || ''),
+    status,
+    numberOfGuests: 1,
+    currency: 'USD',
+  }, { status });
 }
 
 function mapBookingComStatus(status: string): BookingStatus {
@@ -258,9 +327,10 @@ router.post(
       const listingId = data ? String(data.listing_id || '') : '';
 
       if (listingId) {
-        const integration = await prisma.integration.findFirst({
-          where: { platform: BookingSource.AIRBNB, externalId: listingId, isActive: true },
-        });
+        const integration = await db.selectOne<IntegrationRow>(
+          'Integration',
+          { platform: BookingSource.AIRBNB, externalId: listingId, isActive: true }
+        );
 
         if (integration?.webhookSecret) {
           if (!signature) {
@@ -296,44 +366,37 @@ router.post(
 
 async function processAirbnbReservation(data: Record<string, unknown>) {
   const listingId = String(data.listing_id || '');
-  const integration = await prisma.integration.findFirst({
-    where: { platform: BookingSource.AIRBNB, externalId: listingId, isActive: true },
-  });
+  const integration = await db.selectOne<IntegrationRow>(
+    'Integration',
+    { platform: BookingSource.AIRBNB, externalId: listingId, isActive: true }
+  );
 
   if (!integration) return;
 
   const guestData = data.guest as Record<string, unknown> | undefined;
   if (!guestData) return;
 
-  let guest = await prisma.guest.findFirst({
-    where: { email: String(guestData.email || '') },
+  const guest = await findOrCreateGuest({
+    firstName: String(guestData.first_name || ''),
+    lastName: String(guestData.last_name || ''),
+    email: guestData.email ? String(guestData.email) : undefined,
+    phone: guestData.phone ? String(guestData.phone) : undefined,
   });
-
-  if (!guest) {
-    guest = await prisma.guest.create({
-      data: {
-        firstName: String(guestData.first_name || ''),
-        lastName: String(guestData.last_name || ''),
-        email: guestData.email ? String(guestData.email) : undefined,
-        phone: guestData.phone ? String(guestData.phone) : undefined,
-      },
-    });
-  }
 
   const reservationCode = String(data.confirmation_code || '');
-  await prisma.booking.upsert({
-    where: { id: `airbnb_${reservationCode}` },
-    update: { status: BookingStatus.CONFIRMED },
-    create: {
-      id: `airbnb_${reservationCode}`,
-      guestId: guest.id,
-      propertyId: integration.propertyId,
-      checkIn: new Date(String(data.start_date || '')),
-      checkOut: new Date(String(data.end_date || '')),
-      source: BookingSource.AIRBNB,
-      externalId: reservationCode,
-    },
-  });
+  const bookingId = `airbnb_${reservationCode}`;
+
+  await upsertBooking(bookingId, {
+    guestId: guest.id,
+    propertyId: integration.propertyId,
+    checkIn: new Date(String(data.start_date || '')).toISOString(),
+    checkOut: new Date(String(data.end_date || '')).toISOString(),
+    source: BookingSource.AIRBNB,
+    externalId: reservationCode,
+    status: BookingStatus.CONFIRMED,
+    numberOfGuests: 1,
+    currency: 'USD',
+  }, { status: BookingStatus.CONFIRMED });
 }
 
 // ─── Generic API Endpoint for External Booking Systems ────────────────────────
@@ -347,10 +410,7 @@ router.post(
       return;
     }
 
-    const key = await prisma.apiKey.findUnique({
-      where: { key: apiKey },
-      include: { property: true },
-    });
+    const key = await db.selectOne<ApiKeyRow>('ApiKey', { key: apiKey });
 
     if (!key || !key.isActive) {
       res.status(401).json({ success: false, message: 'Invalid API key' });
@@ -377,37 +437,32 @@ router.post(
       return;
     }
 
-    let guest = await prisma.guest.findFirst({
-      where: { email: guestData.email },
+    const guest = await findOrCreateGuest({
+      firstName: String(guestData.firstName || guestData.first_name || ''),
+      lastName: String(guestData.lastName || guestData.last_name || ''),
+      email: guestData.email ? String(guestData.email) : undefined,
+      phone: guestData.phone ? String(guestData.phone) : undefined,
+      nationality: guestData.nationality ? String(guestData.nationality) : undefined,
     });
 
-    if (!guest) {
-      guest = await prisma.guest.create({
-        data: {
-          firstName: String(guestData.firstName || guestData.first_name || ''),
-          lastName: String(guestData.lastName || guestData.last_name || ''),
-          email: guestData.email ? String(guestData.email) : undefined,
-          phone: guestData.phone ? String(guestData.phone) : undefined,
-          nationality: guestData.nationality ? String(guestData.nationality) : undefined,
-        },
-      });
-    }
-
-    const booking = await prisma.booking.create({
-      data: {
-        guestId: guest.id,
-        propertyId: key.propertyId,
-        source: BookingSource.API,
-        checkIn,
-        checkOut,
-        roomNumber: bookingData.roomNumber ? String(bookingData.roomNumber) : null,
-        numberOfGuests: bookingData.numberOfGuests ? Number(bookingData.numberOfGuests) : 1,
-        totalAmount: bookingData.totalAmount ? Number(bookingData.totalAmount) : null,
-        currency: bookingData.currency ? String(bookingData.currency) : 'USD',
-        externalId: bookingData.externalId ? String(bookingData.externalId) : null,
-        externalUrl: bookingData.externalUrl ? String(bookingData.externalUrl) : null,
-        notes: bookingData.notes ? String(bookingData.notes) : null,
-      },
+    const now = new Date().toISOString();
+    const booking = await db.insert<BookingRow>('Booking', {
+      id: crypto.randomBytes(12).toString('base64url'),
+      guestId: guest.id,
+      propertyId: key.propertyId,
+      source: BookingSource.API,
+      checkIn: checkIn.toISOString(),
+      checkOut: checkOut.toISOString(),
+      roomNumber: bookingData.roomNumber ? String(bookingData.roomNumber) : null,
+      numberOfGuests: bookingData.numberOfGuests ? Number(bookingData.numberOfGuests) : 1,
+      totalAmount: bookingData.totalAmount ? Number(bookingData.totalAmount) : null,
+      currency: bookingData.currency ? String(bookingData.currency) : 'USD',
+      externalId: bookingData.externalId ? String(bookingData.externalId) : null,
+      externalUrl: bookingData.externalUrl ? String(bookingData.externalUrl) : null,
+      notes: bookingData.notes ? String(bookingData.notes) : null,
+      status: BookingStatus.CONFIRMED,
+      createdAt: now,
+      updatedAt: now,
     });
 
     res.status(201).json({ success: true, data: { guestId: guest.id, bookingId: booking.id } });

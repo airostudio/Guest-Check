@@ -1,21 +1,61 @@
 import { Router, Response } from 'express';
-import { ReviewStatus } from '@prisma/client';
+import { ReviewStatus, RiskLevel } from '@prisma/client';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { ratingToLabel } from '../utils/riskScore';
-import prisma from '../lib/prisma';
+import { db } from '../lib/supabase';
 
 const router = Router();
 
+interface GuestRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  nationality: string | null;
+  averageRating: number | null;
+  totalReviews: number;
+  riskLevel: RiskLevel;
+  phone: string | null;
+}
+
+interface ReviewRow {
+  id: string;
+  guestId: string;
+  propertyId: string;
+  overallRating: number;
+  publicComment: string | null;
+  wouldWelcomeBack: boolean | null;
+  isVerifiedStay: boolean;
+  stayMonth: number | null;
+  stayYear: number | null;
+  status: ReviewStatus;
+  createdAt: string;
+}
+
+interface BookingRow {
+  id: string;
+  guestId: string;
+  propertyId: string;
+  checkIn: string;
+  checkOut: string;
+  status: string;
+  roomNumber: string | null;
+}
+
+interface PropertyRef {
+  id: string;
+  name: string;
+  city: string;
+  country: string;
+}
+
 // ─── Caller ID Lookup ─────────────────────────────────────────────────────────
-// Called when a known number rings reception — pops up guest profile
 
 router.get(
   '/caller/:number',
   authenticate,
   async (req: AuthRequest, res: Response): Promise<void> => {
     const rawNumber = req.params.number;
-    // Strip non-digits for flexible matching
     const digits = rawNumber.replace(/\D/g, '');
 
     if (digits.length < 7) {
@@ -23,57 +63,24 @@ router.get(
       return;
     }
 
-    // Search guest phones (try last 10 digits for local-vs-international)
-    const searchVariants = [digits, digits.slice(-10), digits.slice(-9)].filter(
-      (v, i, arr) => arr.indexOf(v) === i
-    );
+    const searchVariants = Array.from(new Set([digits, digits.slice(-10), digits.slice(-9)].filter((v) => v.length >= 7)));
 
-    const guests = await prisma.guest.findMany({
-      where: {
-        OR: [
-          ...searchVariants.map((v) => ({ phone: { endsWith: v } })),
-          ...searchVariants.map((v) => ({
-            phoneNumbers: { some: { number: { endsWith: v } } },
-          })),
-        ],
-      },
-      include: {
-        reviews: {
-          where: { status: ReviewStatus.PUBLISHED },
-          select: {
-            id: true,
-            overallRating: true,
-            publicComment: true,
-            wouldWelcomeBack: true,
-            isVerifiedStay: true,
-            stayMonth: true,
-            stayYear: true,
-            property: {
-              select: {
-                name: true,
-                city: true,
-                country: true,
-              },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-        },
-        bookings: {
-          where: { propertyId: req.user!.propertyId ?? undefined },
-          orderBy: { checkIn: 'desc' },
-          take: 3,
-          select: {
-            id: true,
-            checkIn: true,
-            checkOut: true,
-            status: true,
-            roomNumber: true,
-          },
-        },
-      },
-      take: 3,
-    });
+    // Build OR filter — match phone or GuestPhone.number ending with any variant.
+    // Guest table has direct phone field; GuestPhone has number field. Query both.
+    const phoneFilter = searchVariants.map((v) => `phone.ilike.*${v}`).join(',');
+    const guestPhoneFilter = searchVariants.map((v) => `number.ilike.*${v}`).join(',');
+
+    const [directGuests, phoneRecords] = await Promise.all([
+      db.select<GuestRow>('Guest', {}, { or: phoneFilter, limit: 5 }),
+      db.select<{ guestId: string }>('GuestPhone', {}, { or: guestPhoneFilter, select: 'guestId', limit: 10 }),
+    ]);
+
+    const extraIds = phoneRecords.map((p) => p.guestId).filter((gid) => !directGuests.find((g) => g.id === gid));
+    const extra = extraIds.length
+      ? await db.select<GuestRow>('Guest', { id: { in: extraIds } })
+      : [];
+
+    const guests = [...directGuests, ...extra].slice(0, 3);
 
     if (guests.length === 0) {
       res.json({
@@ -84,13 +91,55 @@ router.get(
       return;
     }
 
-    // Format caller card response
+    const guestIds = guests.map((g) => g.id);
+
+    const [reviews, bookings] = await Promise.all([
+      db.select<ReviewRow>(
+        'Review',
+        { guestId: { in: guestIds }, status: ReviewStatus.PUBLISHED },
+        { order: 'createdAt.desc' }
+      ),
+      db.select<BookingRow>(
+        'Booking',
+        req.user!.propertyId
+          ? { guestId: { in: guestIds }, propertyId: req.user!.propertyId }
+          : { guestId: { in: guestIds } },
+        { order: 'checkIn.desc' }
+      ),
+    ]);
+
+    const reviewPropertyIds = Array.from(new Set(reviews.map((r) => r.propertyId)));
+    const properties = reviewPropertyIds.length
+      ? await db.select<PropertyRef>(
+          'Property',
+          { id: { in: reviewPropertyIds } },
+          { select: 'id,name,city,country' }
+        )
+      : [];
+    const pById = new Map(properties.map((p) => [p.id, p]));
+
+    const reviewsByGuest = new Map<string, ReviewRow[]>();
+    for (const r of reviews) {
+      const arr = reviewsByGuest.get(r.guestId) ?? [];
+      if (arr.length < 5) arr.push(r);
+      reviewsByGuest.set(r.guestId, arr);
+    }
+
+    const bookingsByGuest = new Map<string, BookingRow[]>();
+    for (const b of bookings) {
+      const arr = bookingsByGuest.get(b.guestId) ?? [];
+      if (arr.length < 3) arr.push(b);
+      bookingsByGuest.set(b.guestId, arr);
+    }
+
     const callerCards = guests.map((guest) => {
       const avgRating = guest.averageRating;
       const riskLabel = avgRating ? ratingToLabel(avgRating) : 'No reviews yet';
+      const guestReviews = reviewsByGuest.get(guest.id) ?? [];
+      const guestBookings = bookingsByGuest.get(guest.id) ?? [];
 
-      const recommendCount = guest.reviews.filter((r) => r.wouldWelcomeBack === true).length;
-      const notRecommendCount = guest.reviews.filter((r) => r.wouldWelcomeBack === false).length;
+      const recommendCount = guestReviews.filter((r) => r.wouldWelcomeBack === true).length;
+      const notRecommendCount = guestReviews.filter((r) => r.wouldWelcomeBack === false).length;
 
       return {
         id: guest.id,
@@ -103,8 +152,11 @@ router.get(
         recommendCount,
         notRecommendCount,
         alert: buildAlert(guest.riskLevel),
-        recentReviews: guest.reviews,
-        previousBookings: guest.bookings,
+        recentReviews: guestReviews.map((r) => ({
+          ...r,
+          property: pById.get(r.propertyId) ?? null,
+        })),
+        previousBookings: guestBookings,
       };
     });
 

@@ -1,13 +1,65 @@
 import { Router, Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import { BookingSource, BookingStatus } from '@prisma/client';
+import crypto from 'crypto';
+import { BookingSource, BookingStatus, RiskLevel } from '@prisma/client';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import prisma from '../lib/prisma';
+import { db, Filter } from '../lib/supabase';
 
 const router = Router();
 
-// ─── Create Booking (manual or via API) ──────────────────────────────────────
+interface BookingRow {
+  id: string;
+  guestId: string;
+  propertyId: string;
+  checkIn: string;
+  checkOut: string;
+  roomNumber: string | null;
+  numberOfGuests: number;
+  totalAmount: number | null;
+  currency: string | null;
+  source: BookingSource;
+  externalId: string | null;
+  externalUrl: string | null;
+  status: BookingStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface GuestRef {
+  id: string;
+  firstName: string;
+  lastName: string;
+  nationality?: string | null;
+  averageRating?: number | null;
+  totalReviews?: number;
+  riskLevel: RiskLevel;
+  profileImage?: string | null;
+}
+
+interface ReviewRef {
+  id: string;
+  overallRating: number;
+  bookingId: string | null;
+  reviewerId?: string;
+}
+
+interface UserRef {
+  id: string;
+  firstName: string;
+  lastName: string;
+}
+
+async function attachGuests<T extends { guestId: string }>(rows: T[], select: string): Promise<(T & { guest: GuestRef | null })[]> {
+  if (rows.length === 0) return [];
+  const ids = Array.from(new Set(rows.map((r) => r.guestId)));
+  const guests = await db.select<GuestRef>('Guest', { id: { in: ids } }, { select });
+  const byId = new Map(guests.map((g) => [g.id, g]));
+  return rows.map((r) => ({ ...r, guest: byId.get(r.guestId) ?? null }));
+}
+
+// ─── Create Booking ──────────────────────────────────────────────────────────
 
 router.post(
   '/',
@@ -40,31 +92,33 @@ router.post(
       return;
     }
 
-    const booking = await prisma.booking.create({
-      data: {
-        guestId,
-        propertyId,
-        checkIn: new Date(checkIn),
-        checkOut: new Date(checkOut),
-        roomNumber: roomNumber || null,
-        numberOfGuests: numberOfGuests || 1,
-        totalAmount: totalAmount || null,
-        currency: currency || 'USD',
-        source: source || BookingSource.MANUAL,
-        externalId: externalId || null,
-        externalUrl: externalUrl || null,
-        notes: notes || null,
-      },
-      include: {
-        guest: { select: { id: true, firstName: true, lastName: true, riskLevel: true } },
-      },
+    const now = new Date().toISOString();
+    const booking = await db.insert<BookingRow>('Booking', {
+      id: crypto.randomBytes(12).toString('base64url'),
+      guestId,
+      propertyId,
+      checkIn: new Date(checkIn).toISOString(),
+      checkOut: new Date(checkOut).toISOString(),
+      roomNumber: roomNumber || null,
+      numberOfGuests: numberOfGuests || 1,
+      totalAmount: totalAmount || null,
+      currency: currency || 'USD',
+      source: source || BookingSource.MANUAL,
+      externalId: externalId || null,
+      externalUrl: externalUrl || null,
+      notes: notes || null,
+      status: BookingStatus.CONFIRMED,
+      createdAt: now,
+      updatedAt: now,
     });
 
-    res.status(201).json({ success: true, data: booking });
+    const guest = await db.selectOne<GuestRef>('Guest', { id: guestId }, { select: 'id,firstName,lastName,riskLevel' });
+
+    res.status(201).json({ success: true, data: { ...booking, guest } });
   }
 );
 
-// ─── List Bookings for Property ───────────────────────────────────────────────
+// ─── List Bookings ───────────────────────────────────────────────────────────
 
 router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const propertyId = req.user!.propertyId;
@@ -78,46 +132,43 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<v
   const status = req.query.status as BookingStatus | undefined;
   const upcoming = req.query.upcoming === 'true';
 
-  const where: Record<string, unknown> = { propertyId };
-  if (status && Object.values(BookingStatus).includes(status)) where.status = status;
+  const filters: Record<string, Filter> = { propertyId };
+  if (status && Object.values(BookingStatus).includes(status)) filters.status = status;
   if (upcoming) {
-    where.checkIn = { gte: new Date() };
-    where.status = BookingStatus.CONFIRMED;
+    filters.checkIn = { gte: new Date() };
+    filters.status = BookingStatus.CONFIRMED;
   }
 
-  const [bookings, total] = await Promise.all([
-    prisma.booking.findMany({
-      where,
-      include: {
-        guest: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            nationality: true,
-            averageRating: true,
-            riskLevel: true,
-            profileImage: true,
-          },
-        },
-        reviews: { select: { id: true, overallRating: true } },
-      },
-      orderBy: { checkIn: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
-    prisma.booking.count({ where }),
-  ]);
+  const { data: bookings, total } = await db.selectAndCount<BookingRow>(
+    'Booking',
+    filters,
+    { order: 'checkIn.desc', limit, offset: (page - 1) * limit }
+  );
+
+  const withGuests = await attachGuests(bookings, 'id,firstName,lastName,nationality,averageRating,riskLevel,profileImage');
+
+  const bookingIds = bookings.map((b) => b.id);
+  const reviews = bookingIds.length
+    ? await db.select<ReviewRef>('Review', { bookingId: { in: bookingIds } }, { select: 'id,overallRating,bookingId' })
+    : [];
+  const reviewsByBooking = new Map<string, ReviewRef[]>();
+  for (const r of reviews) {
+    if (!r.bookingId) continue;
+    const arr = reviewsByBooking.get(r.bookingId) ?? [];
+    arr.push(r);
+    reviewsByBooking.set(r.bookingId, arr);
+  }
+
+  const enriched = withGuests.map((b) => ({ ...b, reviews: reviewsByBooking.get(b.id) ?? [] }));
 
   res.json({
     success: true,
-    data: bookings,
+    data: enriched,
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
   });
 });
 
-// ─── Upcoming Arrivals with Risk Alerts ───────────────────────────────────────
-// Declared before /:id to prevent Express from matching 'upcoming' as an :id param
+// ─── Upcoming Arrivals with Risk Alerts ──────────────────────────────────────
 
 router.get(
   '/upcoming/arrivals',
@@ -133,33 +184,23 @@ router.get(
     const until = new Date();
     until.setDate(until.getDate() + days);
 
-    const arrivals = await prisma.booking.findMany({
-      where: {
+    const now = new Date().toISOString();
+    const arrivals = await db.select<BookingRow>(
+      'Booking',
+      {
         propertyId,
         status: BookingStatus.CONFIRMED,
-        checkIn: { gte: new Date(), lte: until },
+        checkIn: { gte: now, lte: until.toISOString() },
       },
-      include: {
-        guest: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            nationality: true,
-            averageRating: true,
-            totalReviews: true,
-            riskLevel: true,
-            profileImage: true,
-          },
-        },
-      },
-      orderBy: { checkIn: 'asc' },
-    });
+      { order: 'checkIn.asc' }
+    );
 
-    const withAlerts = arrivals.map((booking) => ({
+    const withGuests = await attachGuests(arrivals, 'id,firstName,lastName,nationality,averageRating,totalReviews,riskLevel,profileImage');
+
+    const withAlerts = withGuests.map((booking) => ({
       ...booking,
       alert:
-        booking.guest.riskLevel === 'HIGH_RISK' || booking.guest.riskLevel === 'POOR'
+        booking.guest && (booking.guest.riskLevel === 'HIGH_RISK' || booking.guest.riskLevel === 'POOR')
           ? {
               level: booking.guest.riskLevel,
               message:
@@ -174,20 +215,10 @@ router.get(
   }
 );
 
-// ─── Get Single Booking ────────────────────────────────────────────────────────
+// ─── Get Single Booking ──────────────────────────────────────────────────────
 
 router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const booking = await prisma.booking.findUnique({
-    where: { id: req.params.id },
-    include: {
-      guest: true,
-      reviews: {
-        include: {
-          reviewer: { select: { firstName: true, lastName: true } },
-        },
-      },
-    },
-  });
+  const booking = await db.selectOne<BookingRow>('Booking', { id: req.params.id });
 
   if (!booking) {
     res.status(404).json({ success: false, message: 'Booking not found' });
@@ -199,10 +230,26 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promis
     return;
   }
 
-  res.json({ success: true, data: booking });
+  const [guest, reviews] = await Promise.all([
+    db.selectOne<GuestRef>('Guest', { id: booking.guestId }),
+    db.select<ReviewRef>('Review', { bookingId: booking.id }),
+  ]);
+
+  const reviewerIds = Array.from(new Set(reviews.map((r) => r.reviewerId).filter(Boolean) as string[]));
+  const reviewers = reviewerIds.length
+    ? await db.select<UserRef>('User', { id: { in: reviewerIds } }, { select: 'id,firstName,lastName' })
+    : [];
+  const userById = new Map(reviewers.map((u) => [u.id, u]));
+
+  const reviewsWithUsers = reviews.map((r) => ({
+    ...r,
+    reviewer: r.reviewerId ? userById.get(r.reviewerId) ?? null : null,
+  }));
+
+  res.json({ success: true, data: { ...booking, guest, reviews: reviewsWithUsers } });
 });
 
-// ─── Update Booking Status ────────────────────────────────────────────────────
+// ─── Update Booking Status ───────────────────────────────────────────────────
 
 router.patch(
   '/:id/status',
@@ -215,7 +262,7 @@ router.patch(
       return;
     }
 
-    const booking = await prisma.booking.findUnique({ where: { id: req.params.id } });
+    const booking = await db.selectOne<BookingRow>('Booking', { id: req.params.id });
 
     if (!booking) {
       res.status(404).json({ success: false, message: 'Booking not found' });
@@ -227,9 +274,9 @@ router.patch(
       return;
     }
 
-    const updated = await prisma.booking.update({
-      where: { id: booking.id },
-      data: { status: status as BookingStatus },
+    const updated = await db.updateOne<BookingRow>('Booking', { id: booking.id }, {
+      status: status as BookingStatus,
+      updatedAt: new Date().toISOString(),
     });
 
     res.json({ success: true, data: updated });
