@@ -1,16 +1,48 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { UserRole, PropertyType, Prisma } from '@prisma/client';
+import { UserRole, PropertyType } from '@prisma/client';
 import crypto from 'crypto';
 import config from '../config/config';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { emailService } from '../services/email.service';
 import logger from '../utils/logger';
-import prisma from '../lib/prisma';
+import { db } from '../lib/supabase';
 
 const router = Router();
+
+interface UserRow {
+  id: string;
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  role: UserRole;
+  phone: string | null;
+  avatarUrl: string | null;
+  propertyId: string | null;
+  emailVerified: boolean;
+  verificationToken: string | null;
+  verificationExpiry: string | null;
+  resetToken: string | null;
+  resetTokenExpiry: string | null;
+  lastLoginAt: string | null;
+  isActive: boolean;
+}
+
+interface PropertyRow {
+  id: string;
+  name: string;
+  type: PropertyType;
+  city: string;
+  country: string;
+  status: string;
+  subscriptionTier: string;
+  subscriptionStatus: string;
+  trialEndsAt: string | null;
+  logoUrl: string | null;
+}
 
 // ─── Register Property + Admin User ──────────────────────────────────────────
 
@@ -22,7 +54,6 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     propertyPhone, propertyWebsite, vatNumber,
   } = req.body;
 
-  // Manual validation — clear, specific error messages
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
     res.status(400).json({ success: false, message: 'A valid email address is required' });
     return;
@@ -60,58 +91,64 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
+  const normalizedEmail = email.toLowerCase().trim();
+
   try {
-    // Check for duplicate email
-    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    const existing = await db.selectOne<UserRow>('User', { email: normalizedEmail });
     if (existing) {
       res.status(409).json({ success: false, message: 'An account with this email already exists' });
       return;
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
+    const now = new Date().toISOString();
+    const propertyId = crypto.randomBytes(12).toString('base64url');
+    const userId = crypto.randomBytes(12).toString('base64url');
 
-    // Sequential creates — avoids pgbouncer transaction issues with Supabase
-    const property = await prisma.property.create({
-      data: {
-        name: propertyName.trim(),
-        type: propertyType as PropertyType,
-        address: propertyAddress.trim(),
-        city: propertyCity.trim(),
-        country: propertyCountry.trim(),
-        postcode: propertyPostcode?.trim() || null,
-        phone: propertyPhone?.trim() || null,
-        website: propertyWebsite?.trim() || null,
-        vatNumber: vatNumber?.trim() || null,
-        billingEmail: email.toLowerCase().trim(),
-      },
+    const property = await db.insert<PropertyRow>('Property', {
+      id: propertyId,
+      name: propertyName.trim(),
+      type: propertyType,
+      address: propertyAddress.trim(),
+      city: propertyCity.trim(),
+      country: propertyCountry.trim(),
+      postcode: propertyPostcode?.trim() || null,
+      phone: propertyPhone?.trim() || null,
+      website: propertyWebsite?.trim() || null,
+      vatNumber: vatNumber?.trim() || null,
+      billingEmail: normalizedEmail,
+      status: 'PENDING_VERIFICATION',
+      subscriptionTier: 'FREE_TRIAL',
+      subscriptionStatus: 'TRIALING',
+      createdAt: now,
+      updatedAt: now,
     });
 
-    let user;
     try {
-      user = await prisma.user.create({
-        data: {
-          email: email.toLowerCase().trim(),
-          password: hashedPassword,
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          role: UserRole.PROPERTY_ADMIN,
-          propertyId: property.id,
-          // Email is marked verified so they can log in immediately.
-          // The property itself still requires admin approval before going live.
-          emailVerified: true,
-        },
+      await db.insert<UserRow>('User', {
+        id: userId,
+        email: normalizedEmail,
+        password: hashedPassword,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        role: UserRole.PROPERTY_ADMIN,
+        propertyId: property.id,
+        emailVerified: true,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
       });
     } catch (userErr) {
-      // Clean up the orphaned property if user creation fails
-      await prisma.property.delete({ where: { id: property.id } }).catch(() => {});
-      if (userErr instanceof Prisma.PrismaClientKnownRequestError && userErr.code === 'P2002') {
+      await db.delete('Property', { id: property.id }).catch(() => {});
+      const msg = (userErr as Error).message || '';
+      if (msg.includes('duplicate') || msg.includes('23505')) {
         res.status(409).json({ success: false, message: 'An account with this email already exists' });
         return;
       }
       throw userErr;
     }
 
-    logger.info(`New registration: ${user.email} for property "${property.name}" (${property.id})`);
+    logger.info(`New registration: ${normalizedEmail} for property "${property.name}" (${property.id})`);
 
     res.status(201).json({
       success: true,
@@ -128,11 +165,9 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
 router.get('/verify-email/:token', async (req: Request, res: Response): Promise<void> => {
   const { token } = req.params;
 
-  const user = await prisma.user.findFirst({
-    where: {
-      verificationToken: token,
-      verificationExpiry: { gt: new Date() },
-    },
+  const user = await db.selectOne<UserRow>('User', {
+    verificationToken: token,
+    verificationExpiry: { gt: new Date() },
   });
 
   if (!user) {
@@ -140,9 +175,11 @@ router.get('/verify-email/:token', async (req: Request, res: Response): Promise<
     return;
   }
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { emailVerified: true, verificationToken: null, verificationExpiry: null },
+  await db.update('User', { id: user.id }, {
+    emailVerified: true,
+    verificationToken: null,
+    verificationExpiry: null,
+    updatedAt: new Date().toISOString(),
   });
 
   res.json({ success: true, message: 'Email verified successfully. You can now log in.' });
@@ -159,17 +196,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
   }
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
-      include: {
-        property: {
-          select: {
-            id: true, name: true, status: true,
-            subscriptionTier: true, subscriptionStatus: true, trialEndsAt: true,
-          },
-        },
-      },
-    });
+    const user = await db.selectOne<UserRow>('User', { email: email.toLowerCase().trim() });
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
       res.status(401).json({ success: false, message: 'Invalid email or password' });
@@ -181,13 +208,22 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    let property: PropertyRow | null = null;
+    if (user.propertyId) {
+      property = await db.selectOne<PropertyRow>(
+        'Property',
+        { id: user.propertyId },
+        { select: 'id,name,status,subscriptionTier,subscriptionStatus,trialEndsAt' }
+      );
+    }
+
     const token = jwt.sign(
       { userId: user.id, email: user.email, role: user.role, propertyId: user.propertyId },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn } as jwt.SignOptions
     );
 
-    prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
+    db.update('User', { id: user.id }, { lastLoginAt: new Date().toISOString() }).catch(() => {});
 
     res.json({
       success: true,
@@ -199,7 +235,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
           firstName: user.firstName,
           lastName: user.lastName,
           role: user.role,
-          property: user.property,
+          property,
         },
       },
     });
@@ -212,22 +248,27 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 // ─── Get Current User ─────────────────────────────────────────────────────────
 
 router.get('/me', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const user = await prisma.user.findUnique({
-    where: { id: req.user!.id },
-    select: {
-      id: true, email: true, firstName: true, lastName: true,
-      role: true, phone: true, avatarUrl: true, lastLoginAt: true,
-      property: {
-        select: {
-          id: true, name: true, type: true, city: true, country: true,
-          status: true, subscriptionTier: true, subscriptionStatus: true,
-          trialEndsAt: true, logoUrl: true,
-        },
-      },
-    },
-  });
+  const user = await db.selectOne<UserRow>(
+    'User',
+    { id: req.user!.id },
+    { select: 'id,email,firstName,lastName,role,phone,avatarUrl,lastLoginAt,propertyId' }
+  );
 
-  res.json({ success: true, data: user });
+  if (!user) {
+    res.status(404).json({ success: false, message: 'User not found' });
+    return;
+  }
+
+  let property: PropertyRow | null = null;
+  if (user.propertyId) {
+    property = await db.selectOne<PropertyRow>(
+      'Property',
+      { id: user.propertyId },
+      { select: 'id,name,type,city,country,status,subscriptionTier,subscriptionStatus,trialEndsAt,logoUrl' }
+    );
+  }
+
+  res.json({ success: true, data: { ...user, property } });
 });
 
 // ─── Forgot Password ──────────────────────────────────────────────────────────
@@ -241,20 +282,21 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
   }
 
   try {
-    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    const user = await db.selectOne<UserRow>('User', { email: email.toLowerCase().trim() });
 
     if (user) {
       const resetToken = crypto.randomBytes(32).toString('hex');
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { resetToken, resetTokenExpiry: new Date(Date.now() + 60 * 60 * 1000) },
+      const expiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      await db.update('User', { id: user.id }, {
+        resetToken,
+        resetTokenExpiry: expiry,
+        updatedAt: new Date().toISOString(),
       });
       emailService
         .sendPasswordResetEmail(user.email, user.firstName, resetToken)
         .catch((err) => logger.error('Failed to send password reset email', err));
     }
 
-    // Always return success — prevents email enumeration
     res.json({ success: true, message: 'If an account exists for that email, a reset link has been sent.' });
   } catch (err) {
     logger.error('Forgot password error', err);
@@ -273,8 +315,9 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
   }
 
   try {
-    const user = await prisma.user.findFirst({
-      where: { resetToken: token, resetTokenExpiry: { gt: new Date() } },
+    const user = await db.selectOne<UserRow>('User', {
+      resetToken: token,
+      resetTokenExpiry: { gt: new Date() },
     });
 
     if (!user) {
@@ -282,13 +325,11 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
       return;
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        password: await bcrypt.hash(password, 12),
-        resetToken: null,
-        resetTokenExpiry: null,
-      },
+    await db.update('User', { id: user.id }, {
+      password: await bcrypt.hash(password, 12),
+      resetToken: null,
+      resetTokenExpiry: null,
+      updatedAt: new Date().toISOString(),
     });
 
     res.json({ success: true, message: 'Password reset successfully. You can now log in.' });
@@ -309,16 +350,16 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
   }
 
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+    const user = await db.selectOne<UserRow>('User', { id: req.user!.id });
 
     if (!user || !(await bcrypt.compare(currentPassword, user.password))) {
       res.status(400).json({ success: false, message: 'Current password is incorrect' });
       return;
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { password: await bcrypt.hash(newPassword, 12) },
+    await db.update('User', { id: user.id }, {
+      password: await bcrypt.hash(newPassword, 12),
+      updatedAt: new Date().toISOString(),
     });
 
     res.json({ success: true, message: 'Password changed successfully' });

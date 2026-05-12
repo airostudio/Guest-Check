@@ -3,8 +3,25 @@ import jwt from 'jsonwebtoken';
 
 import config from '../config/config';
 import { AuthRequest, JwtPayload } from '../types';
-import prisma from '../lib/prisma';
+import { db } from '../lib/supabase';
+import { UserRole, SubscriptionTier, SubscriptionStatus } from '@prisma/client';
 
+interface UserRow {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: UserRole;
+  propertyId: string | null;
+  emailVerified: boolean;
+  isActive: boolean;
+}
+
+interface PropertyRow {
+  subscriptionTier: SubscriptionTier;
+  subscriptionStatus: SubscriptionStatus;
+  status: string;
+}
 
 export const authenticate = async (
   req: AuthRequest,
@@ -24,18 +41,11 @@ export const authenticate = async (
 
     const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      include: {
-        property: {
-          select: {
-            subscriptionTier: true,
-            subscriptionStatus: true,
-            status: true,
-          },
-        },
-      },
-    });
+    const user = await db.selectOne<UserRow>(
+      'User',
+      { id: decoded.userId },
+      { select: 'id,email,firstName,lastName,role,propertyId,emailVerified,isActive' }
+    );
 
     if (!user || !user.isActive) {
       res.status(401).json({ success: false, message: 'User not found or deactivated' });
@@ -47,6 +57,15 @@ export const authenticate = async (
       return;
     }
 
+    let property: PropertyRow | null = null;
+    if (user.propertyId) {
+      property = await db.selectOne<PropertyRow>(
+        'Property',
+        { id: user.propertyId },
+        { select: 'subscriptionTier,subscriptionStatus,status' }
+      );
+    }
+
     req.user = {
       id: user.id,
       email: user.email,
@@ -54,8 +73,8 @@ export const authenticate = async (
       lastName: user.lastName,
       role: user.role,
       propertyId: user.propertyId,
-      subscriptionTier: user.property?.subscriptionTier,
-      subscriptionStatus: user.property?.subscriptionStatus,
+      subscriptionTier: property?.subscriptionTier,
+      subscriptionStatus: property?.subscriptionStatus,
     };
 
     next();

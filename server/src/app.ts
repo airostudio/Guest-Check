@@ -103,39 +103,18 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
 });
 
-// Temporary diagnostics endpoint — tests live DB connection.
+// Temporary diagnostics endpoint — tests HTTPS connection to Supabase REST API.
 app.get('/api/debug', async (_req, res) => {
-  const dbUrl = process.env.DATABASE_URL ?? '';
-  let dbParsed: Record<string, string> = { error: 'not set' };
-  try {
-    const u = new URL(dbUrl);
-    dbParsed = {
-      host: u.hostname,
-      port: u.port,
-      database: u.pathname.replace('/', ''),
-      user: u.username,
-      password: u.password ? `[set, ${u.password.length} chars]` : '[empty]',
-      params: u.search,
-    };
-  } catch (e) {
-    dbParsed = { error: `parse failed: ${(e as Error).message}` };
-  }
-
-  let dbConnection: Record<string, string> = {};
-  try {
-    const { prisma } = await import('./lib/prisma');
-    await prisma.$queryRaw`SELECT 1`;
-    dbConnection = { status: 'connected' };
-  } catch (e) {
-    dbConnection = { status: 'FAILED', error: (e as Error).message };
-  }
+  const { db } = await import('./lib/supabase');
+  const health = await db.health();
 
   res.json({
-    NODE_ENV:     process.env.NODE_ENV   ?? '(not set)',
-    JWT_SECRET:   process.env.JWT_SECRET ? `[set, ${process.env.JWT_SECRET.length} chars]` : '(not set)',
-    DATABASE_URL: dbUrl ? '[set]' : '(not set)',
-    db: dbParsed,
-    dbConnection,
+    NODE_ENV:                  process.env.NODE_ENV ?? '(not set)',
+    JWT_SECRET:                process.env.JWT_SECRET ? `[set, ${process.env.JWT_SECRET.length} chars]` : '(not set)',
+    SUPABASE_URL:              process.env.SUPABASE_URL ?? '(derived from DATABASE_URL)',
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? `[set, ${process.env.SUPABASE_SERVICE_ROLE_KEY.length} chars]` : '(NOT SET — required)',
+    DATABASE_URL:              process.env.DATABASE_URL ? '[set]' : '(not set)',
+    httpsConnection:           health,
   });
 });
 
