@@ -100,7 +100,7 @@ export default function Landing() {
 
                 {/* Cursive script with hand-drawn underline */}
                 <div className="relative inline-block mt-2">
-                  <span className="font-script text-6xl lg:text-7xl text-brand-500 leading-none">
+                  <span className="font-script text-5xl lg:text-6xl text-brand-500 leading-none">
                     Better stays.
                   </span>
                   <svg
@@ -172,15 +172,10 @@ export default function Landing() {
             <div className="relative">
               <div className="relative aspect-[4/5] rounded-[2.5rem] overflow-hidden bg-cream-200 shadow-xl">
                 <img
-                  src="/hero-bedroom.jpg"
+                  src="https://images.unsplash.com/photo-1540541338287-41700207dee6?auto=format&fit=crop&w=900&q=80"
                   alt="Coastal bedroom with ocean view"
                   className="absolute inset-0 w-full h-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
                 />
-                {/* Soft fallback gradient if image is missing */}
-                <div className="absolute inset-0 bg-gradient-to-br from-cream-200 via-brand-100 to-brand-200 -z-0" />
               </div>
 
               {/* Overlapping testimonial card */}

@@ -30,7 +30,7 @@ export default {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         display: ['"Fraunces"', 'Georgia', 'serif'],
-        script: ['"Caveat"', 'cursive'],
+        script: ['"Great Vibes"', 'cursive'],
       },
     },
   },
