@@ -126,11 +126,6 @@ app.get('/api/debug', (_req, res) => {
     NODE_ENV:     process.env.NODE_ENV     ?? '(not set)',
     JWT_SECRET:   process.env.JWT_SECRET   ? `[set, ${process.env.JWT_SECRET.length} chars]` : '(not set)',
     DATABASE_URL: dbUrl ? '[set]' : '(not set)',
-    DB_HOST:      process.env.DB_HOST      ?? '(not set)',
-    DB_PORT:      process.env.DB_PORT      ?? '(not set)',
-    DB_USER:      process.env.DB_USER      ?? '(not set)',
-    DB_PASSWORD:  process.env.DB_PASSWORD  ? `[set, ${process.env.DB_PASSWORD.length} chars]` : '(not set)',
-    DB_NAME:      process.env.DB_NAME      ?? '(not set)',
     db: dbParsed,
   });
 });
