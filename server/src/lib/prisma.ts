@@ -23,12 +23,16 @@ if (process.env.DB_HOST) {
   const user = process.env.DB_USER     ?? 'postgres';
   const pass = process.env.DB_PASSWORD ?? '';
   const host = process.env.DB_HOST;
-  const port = process.env.DB_PORT     ?? '6543';
+  const port = process.env.DB_PORT     ?? '5432';
   const name = process.env.DB_NAME     ?? 'postgres';
+
+  // pgbouncer=true is only needed for the Supabase Transaction Pooler (port 6543).
+  // Direct connections (port 5432, free plan) must NOT include it.
+  const pgbouncer = port === '6543' ? '&pgbouncer=true' : '';
 
   process.env.DATABASE_URL =
     `postgresql://${enc(user)}:${enc(pass)}@${host}:${port}/${name}` +
-    `?pgbouncer=true&connection_limit=1`;
+    `?connection_limit=1${pgbouncer}`;
 }
 
 // Fail fast with a readable message instead of a cryptic per-request error.
