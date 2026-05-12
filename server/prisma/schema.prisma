@@ -253,6 +253,7 @@ model Review {
 
   @@index([guestId])
   @@index([propertyId])
+  @@index([reviewerId])
   @@index([status])
 }
 
@@ -285,7 +286,9 @@ model Booking {
   @@index([guestId])
   @@index([propertyId])
   @@index([checkIn])
+  @@index([propertyId, checkIn])
   @@index([externalId])
+  @@unique([propertyId, externalId, source])
 }
 
 model ApiKey {

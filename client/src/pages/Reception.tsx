@@ -173,7 +173,7 @@ function CallerProfileCard({ caller }: { caller: CallerCard }) {
         {/* Guest header */}
         <div className="flex items-start gap-4 mb-6">
           <div className="w-16 h-16 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
-            {caller.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+            {(caller.name ?? '').split(' ').filter(Boolean).map((n) => n[0]).join('').slice(0, 2) || '?'}
           </div>
           <div className="flex-1">
             <div className="flex items-start justify-between gap-3 flex-wrap">

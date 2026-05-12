@@ -125,7 +125,7 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-semibold text-sm">
-                      {booking.guest.firstName[0]}{booking.guest.lastName[0]}
+                      {booking.guest.firstName?.[0]}{booking.guest.lastName?.[0]}
                     </div>
                     <div>
                       <Link to={`/guests/${booking.guest.id}`} className="font-medium text-slate-900 hover:text-brand-600 text-sm">
@@ -171,7 +171,7 @@ export default function Dashboard() {
               <div key={review.id} className="card p-4">
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-semibold text-sm">
-                    {review.guest.firstName[0]}{review.guest.lastName[0]}
+                    {review.guest.firstName?.[0]}{review.guest.lastName?.[0]}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">

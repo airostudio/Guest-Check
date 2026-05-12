@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { UserRole } from '@prisma/client';
 import { body, validationResult } from 'express-validator';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { authenticate, requirePropertyAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import prisma from '../lib/prisma';
@@ -96,8 +97,8 @@ router.post(
       return;
     }
 
-    // Generate temporary password
-    const tempPassword = Math.random().toString(36).slice(-10) + 'Gc1!';
+    // Generate cryptographically secure temporary password
+    const tempPassword = crypto.randomBytes(12).toString('base64url') + 'Gc1!';
     const hashed = await bcrypt.hash(tempPassword, 12);
 
     const user = await prisma.user.create({

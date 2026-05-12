@@ -51,6 +51,30 @@ const authLimiter = rateLimit({
   message: { success: false, message: 'Too many requests, please try again later' },
 });
 
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  message: { success: false, message: 'Too many requests, please try again later' },
+});
+
+const guestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { success: false, message: 'Too many requests, please try again later' },
+});
+
+const reviewLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: { success: false, message: 'Too many requests, please try again later' },
+});
+
+const phoneLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { success: false, message: 'Too many requests, please try again later' },
+});
+
 app.use(globalLimiter);
 
 // ─── Stripe webhook needs raw body ───────────────────────────────────────────
@@ -82,14 +106,14 @@ app.get('/health', (_req, res) => {
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/guests', guestRoutes);
-app.use('/api/reviews', reviewRoutes);
+app.use('/api/guests', guestLimiter, guestRoutes);
+app.use('/api/reviews', reviewLimiter, reviewRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/properties', propertyRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/integrations', integrationRoutes);
-app.use('/api/phone', phoneRoutes);
-app.use('/api/admin', adminRoutes);
+app.use('/api/phone', phoneLimiter, phoneRoutes);
+app.use('/api/admin', adminLimiter, adminRoutes);
 
 // ─── 404 + Error Handlers ─────────────────────────────────────────────────────
 

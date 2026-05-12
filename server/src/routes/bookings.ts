@@ -15,7 +15,12 @@ router.post(
   [
     body('guestId').notEmpty(),
     body('checkIn').isISO8601(),
-    body('checkOut').isISO8601(),
+    body('checkOut').isISO8601().custom((value, { req }) => {
+      if (new Date(value) <= new Date(req.body.checkIn)) {
+        throw new Error('checkOut must be after checkIn');
+      }
+      return true;
+    }),
   ],
   async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
@@ -68,13 +73,13 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<v
     return;
   }
 
-  const page = parseInt(req.query.page as string || '1', 10);
+  const page = Math.max(1, parseInt(req.query.page as string || '1', 10));
   const limit = Math.min(parseInt(req.query.limit as string || '20', 10), 100);
   const status = req.query.status as BookingStatus | undefined;
   const upcoming = req.query.upcoming === 'true';
 
   const where: Record<string, unknown> = { propertyId };
-  if (status) where.status = status;
+  if (status && Object.values(BookingStatus).includes(status)) where.status = status;
   if (upcoming) {
     where.checkIn = { gte: new Date() };
     where.status = BookingStatus.CONFIRMED;
@@ -111,63 +116,8 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<v
   });
 });
 
-// ─── Get Single Booking ────────────────────────────────────────────────────────
-
-router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const booking = await prisma.booking.findUnique({
-    where: { id: req.params.id },
-    include: {
-      guest: true,
-      reviews: {
-        include: {
-          reviewer: { select: { firstName: true, lastName: true } },
-        },
-      },
-    },
-  });
-
-  if (!booking) {
-    res.status(404).json({ success: false, message: 'Booking not found' });
-    return;
-  }
-
-  if (booking.propertyId !== req.user!.propertyId && req.user!.role !== 'SUPER_ADMIN') {
-    res.status(403).json({ success: false, message: 'Access denied' });
-    return;
-  }
-
-  res.json({ success: true, data: booking });
-});
-
-// ─── Update Booking Status ────────────────────────────────────────────────────
-
-router.patch(
-  '/:id/status',
-  authenticate,
-  async (req: AuthRequest, res: Response): Promise<void> => {
-    const { status } = req.body;
-    const booking = await prisma.booking.findUnique({ where: { id: req.params.id } });
-
-    if (!booking) {
-      res.status(404).json({ success: false, message: 'Booking not found' });
-      return;
-    }
-
-    if (booking.propertyId !== req.user!.propertyId && req.user!.role !== 'SUPER_ADMIN') {
-      res.status(403).json({ success: false, message: 'Access denied' });
-      return;
-    }
-
-    const updated = await prisma.booking.update({
-      where: { id: booking.id },
-      data: { status },
-    });
-
-    res.json({ success: true, data: updated });
-  }
-);
-
 // ─── Upcoming Arrivals with Risk Alerts ───────────────────────────────────────
+// Declared before /:id to prevent Express from matching 'upcoming' as an :id param
 
 router.get(
   '/upcoming/arrivals',
@@ -206,7 +156,6 @@ router.get(
       orderBy: { checkIn: 'asc' },
     });
 
-    // Flag high-risk arrivals
     const withAlerts = arrivals.map((booking) => ({
       ...booking,
       alert:
@@ -222,6 +171,68 @@ router.get(
     }));
 
     res.json({ success: true, data: withAlerts });
+  }
+);
+
+// ─── Get Single Booking ────────────────────────────────────────────────────────
+
+router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  const booking = await prisma.booking.findUnique({
+    where: { id: req.params.id },
+    include: {
+      guest: true,
+      reviews: {
+        include: {
+          reviewer: { select: { firstName: true, lastName: true } },
+        },
+      },
+    },
+  });
+
+  if (!booking) {
+    res.status(404).json({ success: false, message: 'Booking not found' });
+    return;
+  }
+
+  if (booking.propertyId !== req.user!.propertyId && req.user!.role !== 'SUPER_ADMIN') {
+    res.status(403).json({ success: false, message: 'Access denied' });
+    return;
+  }
+
+  res.json({ success: true, data: booking });
+});
+
+// ─── Update Booking Status ────────────────────────────────────────────────────
+
+router.patch(
+  '/:id/status',
+  authenticate,
+  async (req: AuthRequest, res: Response): Promise<void> => {
+    const { status } = req.body;
+
+    if (!status || !Object.values(BookingStatus).includes(status as BookingStatus)) {
+      res.status(400).json({ success: false, message: 'Invalid booking status' });
+      return;
+    }
+
+    const booking = await prisma.booking.findUnique({ where: { id: req.params.id } });
+
+    if (!booking) {
+      res.status(404).json({ success: false, message: 'Booking not found' });
+      return;
+    }
+
+    if (booking.propertyId !== req.user!.propertyId && req.user!.role !== 'SUPER_ADMIN') {
+      res.status(403).json({ success: false, message: 'Access denied' });
+      return;
+    }
+
+    const updated = await prisma.booking.update({
+      where: { id: booking.id },
+      data: { status: status as BookingStatus },
+    });
+
+    res.json({ success: true, data: updated });
   }
 );
 

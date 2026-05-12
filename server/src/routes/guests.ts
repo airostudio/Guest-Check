@@ -22,7 +22,7 @@ router.get(
     }
 
     const searchTerm = req.query.q as string;
-    const page = parseInt(req.query.page as string || '1', 10);
+    const page = Math.max(1, parseInt(req.query.page as string || '1', 10));
     const limit = Math.min(parseInt(req.query.limit as string || '20', 10), 50);
     const skip = (page - 1) * limit;
 
@@ -214,6 +214,10 @@ router.get(
     const { number } = req.params;
     // Normalize phone number (strip non-digits for flexible matching)
     const normalized = number.replace(/\D/g, '');
+    if (normalized.length < 7) {
+      res.status(400).json({ success: false, message: 'Phone number must contain at least 7 digits' });
+      return;
+    }
 
     const guests = await prisma.guest.findMany({
       where: {
@@ -254,6 +258,20 @@ router.patch(
   authenticate,
   async (req: AuthRequest, res: Response): Promise<void> => {
     const { id } = req.params;
+    const propertyId = req.user!.propertyId;
+
+    // Only allow updating guests the property has hosted
+    if (propertyId && req.user!.role !== 'SUPER_ADMIN') {
+      const booking = await prisma.booking.findFirst({
+        where: { guestId: id, propertyId },
+        select: { id: true },
+      });
+      if (!booking) {
+        res.status(403).json({ success: false, message: 'You can only update guests your property has hosted' });
+        return;
+      }
+    }
+
     const { firstName, lastName, email, phone, nationality, notes } = req.body;
 
     const guest = await prisma.guest.update({

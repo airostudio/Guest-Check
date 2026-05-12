@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 
 import { AuthRequest } from '../types';
 import prisma from '../lib/prisma';
+import logger from '../utils/logger';
 
 
 // Authenticate via API key for external booking system integrations
@@ -36,10 +37,15 @@ export const authenticateApiKey = async (
     return;
   }
 
+  if (!key.property) {
+    res.status(401).json({ success: false, message: 'Invalid API key configuration' });
+    return;
+  }
+
   // Update last used timestamp (fire-and-forget)
   prisma.apiKey
     .update({ where: { id: key.id }, data: { lastUsedAt: new Date() } })
-    .catch(() => {});
+    .catch((err) => logger.warn('Failed to update API key lastUsedAt', { id: key.id, err }));
 
   const adminUser = key.property.users[0];
   if (adminUser) {

@@ -135,14 +135,39 @@ router.post(
 router.post(
   '/webhooks/booking-com',
   async (req: Request, res: Response): Promise<void> => {
-    // Verify webhook signature
     const signature = req.headers['x-booking-signature'] as string;
     logger.info('Booking.com webhook received', { type: req.body?.type });
 
     try {
       const payload = req.body;
+      const data = payload.data as Record<string, unknown> | undefined;
+      const externalPropertyId = data ? String(data.hotel_id || '') : '';
 
-      // Booking.com sends different event types
+      if (externalPropertyId) {
+        const integration = await prisma.integration.findFirst({
+          where: { platform: BookingSource.BOOKING_COM, externalId: externalPropertyId, isActive: true },
+        });
+
+        if (integration?.webhookSecret) {
+          if (!signature) {
+            logger.warn('Booking.com webhook missing signature', { externalPropertyId });
+            res.status(401).json({ error: 'Missing webhook signature' });
+            return;
+          }
+          const expected = crypto
+            .createHmac('sha256', integration.webhookSecret)
+            .update(JSON.stringify(req.body))
+            .digest('hex');
+          const sigBuf = Buffer.from(signature);
+          const expBuf = Buffer.from(expected);
+          if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+            logger.warn('Booking.com webhook signature mismatch', { externalPropertyId });
+            res.status(401).json({ error: 'Invalid webhook signature' });
+            return;
+          }
+        }
+      }
+
       if (payload.type === 'reservation') {
         await processBookingComReservation(payload);
       }
@@ -159,7 +184,6 @@ async function processBookingComReservation(payload: Record<string, unknown>) {
   const data = payload.data as Record<string, unknown>;
   if (!data) return;
 
-  // Find the integration for this property
   const externalPropertyId = String(data.hotel_id || '');
   const integration = await prisma.integration.findFirst({
     where: { platform: BookingSource.BOOKING_COM, externalId: externalPropertyId, isActive: true },
@@ -174,7 +198,6 @@ async function processBookingComReservation(payload: Record<string, unknown>) {
   const bookingData = data.booking as Record<string, unknown> | undefined;
   if (!guestData || !bookingData) return;
 
-  // Find or create guest
   let guest = await prisma.guest.findFirst({
     where: { email: String(guestData.email || '') },
   });
@@ -191,7 +214,6 @@ async function processBookingComReservation(payload: Record<string, unknown>) {
     });
   }
 
-  // Create booking
   await prisma.booking.upsert({
     where: {
       id: `bkgcom_${String(bookingData.id || '')}`,
@@ -228,10 +250,37 @@ function mapBookingComStatus(status: string): BookingStatus {
 router.post(
   '/webhooks/airbnb',
   async (req: Request, res: Response): Promise<void> => {
+    const signature = req.headers['x-airbnb-signature'] as string;
     logger.info('Airbnb webhook received', { type: req.body?.type });
 
     try {
       const { type, data } = req.body;
+      const listingId = data ? String(data.listing_id || '') : '';
+
+      if (listingId) {
+        const integration = await prisma.integration.findFirst({
+          where: { platform: BookingSource.AIRBNB, externalId: listingId, isActive: true },
+        });
+
+        if (integration?.webhookSecret) {
+          if (!signature) {
+            logger.warn('Airbnb webhook missing signature', { listingId });
+            res.status(401).json({ error: 'Missing webhook signature' });
+            return;
+          }
+          const expected = crypto
+            .createHmac('sha256', integration.webhookSecret)
+            .update(JSON.stringify(req.body))
+            .digest('hex');
+          const sigBuf = Buffer.from(signature);
+          const expBuf = Buffer.from(expected);
+          if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+            logger.warn('Airbnb webhook signature mismatch', { listingId });
+            res.status(401).json({ error: 'Invalid webhook signature' });
+            return;
+          }
+        }
+      }
 
       if (type === 'reservation.created' || type === 'reservation.updated') {
         await processAirbnbReservation(data);
@@ -310,22 +359,54 @@ router.post(
 
     const { guest: guestData, booking: bookingData } = req.body;
 
+    if (!guestData || !bookingData) {
+      res.status(400).json({ success: false, message: 'guest and booking are required' });
+      return;
+    }
+
+    if (!bookingData.checkIn || !bookingData.checkOut) {
+      res.status(400).json({ success: false, message: 'checkIn and checkOut are required' });
+      return;
+    }
+
+    const checkIn = new Date(bookingData.checkIn);
+    const checkOut = new Date(bookingData.checkOut);
+
+    if (isNaN(checkIn.getTime()) || isNaN(checkOut.getTime()) || checkOut <= checkIn) {
+      res.status(400).json({ success: false, message: 'Invalid check-in/check-out dates' });
+      return;
+    }
+
     let guest = await prisma.guest.findFirst({
       where: { email: guestData.email },
     });
 
     if (!guest) {
-      guest = await prisma.guest.create({ data: guestData });
+      guest = await prisma.guest.create({
+        data: {
+          firstName: String(guestData.firstName || guestData.first_name || ''),
+          lastName: String(guestData.lastName || guestData.last_name || ''),
+          email: guestData.email ? String(guestData.email) : undefined,
+          phone: guestData.phone ? String(guestData.phone) : undefined,
+          nationality: guestData.nationality ? String(guestData.nationality) : undefined,
+        },
+      });
     }
 
     const booking = await prisma.booking.create({
       data: {
-        ...bookingData,
         guestId: guest.id,
         propertyId: key.propertyId,
         source: BookingSource.API,
-        checkIn: new Date(bookingData.checkIn),
-        checkOut: new Date(bookingData.checkOut),
+        checkIn,
+        checkOut,
+        roomNumber: bookingData.roomNumber ? String(bookingData.roomNumber) : null,
+        numberOfGuests: bookingData.numberOfGuests ? Number(bookingData.numberOfGuests) : 1,
+        totalAmount: bookingData.totalAmount ? Number(bookingData.totalAmount) : null,
+        currency: bookingData.currency ? String(bookingData.currency) : 'USD',
+        externalId: bookingData.externalId ? String(bookingData.externalId) : null,
+        externalUrl: bookingData.externalUrl ? String(bookingData.externalUrl) : null,
+        notes: bookingData.notes ? String(bookingData.notes) : null,
       },
     });
 

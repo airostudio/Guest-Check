@@ -240,8 +240,19 @@ router.post(
   async (req: AuthRequest, res: Response): Promise<void> => {
     const { reason } = req.body;
 
+    const review = await prisma.review.findUnique({ where: { id: req.params.id } });
+    if (!review) {
+      res.status(404).json({ success: false, message: 'Review not found' });
+      return;
+    }
+
+    if (review.propertyId !== req.user!.propertyId && req.user!.role !== 'SUPER_ADMIN') {
+      res.status(403).json({ success: false, message: 'Access denied' });
+      return;
+    }
+
     await prisma.review.update({
-      where: { id: req.params.id },
+      where: { id: review.id },
       data: {
         status: ReviewStatus.FLAGGED,
         flagReason: reason || 'Flagged for review',

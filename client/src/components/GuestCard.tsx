@@ -10,7 +10,7 @@ interface GuestCardProps {
 }
 
 export default function GuestCard({ guest, compact = false, showReviewButton = false }: GuestCardProps) {
-  const initials = `${guest.firstName[0]}${guest.lastName[0]}`.toUpperCase();
+  const initials = `${guest.firstName?.[0] ?? '?'}${guest.lastName?.[0] ?? '?'}`.toUpperCase();
 
   return (
     <div className="card p-4 hover:shadow-md transition-shadow">
