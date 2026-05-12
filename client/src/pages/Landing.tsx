@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Search, Phone, Plug, ShieldAlert, Building2, Check, Star } from 'lucide-react';
+import { Search, Phone, Plug, ShieldAlert, Building2, Check, Star, ShieldCheck, Users, Home, TrendingUp, MessageCircle, BarChart3, Heart } from 'lucide-react';
 
 const FEATURES = [
   {
@@ -63,9 +63,9 @@ const PLANS = [
 
 export default function Landing() {
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-cream-50">
       {/* Nav */}
-      <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-slate-100">
+      <nav className="sticky top-0 z-50 bg-cream-50/90 backdrop-blur border-b border-cream-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <img src="/logo.png" alt="GuestCheck" style={{ width: 170 }} />
           <div className="flex items-center gap-3">
@@ -76,39 +76,179 @@ export default function Landing() {
       </nav>
 
       {/* Hero */}
-      <section className="relative bg-gradient-to-br from-brand-900 via-brand-800 to-brand-700 text-white overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-20 left-20 w-72 h-72 bg-white rounded-full blur-3xl" />
-          <div className="absolute bottom-10 right-10 w-96 h-96 bg-white rounded-full blur-3xl" />
-        </div>
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-28 text-center">
-          <div className="inline-flex items-center gap-2 bg-white/10 rounded-full px-4 py-1.5 text-sm mb-6">
-            <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-            Trusted by 2,400+ accommodation businesses
+      <section className="relative bg-cream-50 overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-20 lg:pt-16 lg:pb-28">
+          <div className="grid lg:grid-cols-[1.1fr_1fr] gap-10 lg:gap-16 items-center">
+            {/* Left: cream card with copy */}
+            <div className="relative">
+              {/* Soft cream blob behind the text */}
+              <div className="absolute -inset-x-8 -inset-y-10 bg-cream-100 rounded-[3rem] -z-0 hidden lg:block" />
+
+              <div className="relative z-10">
+                <div className="flex items-center gap-2 mb-8">
+                  <div className="w-9 h-9 rounded-lg bg-brand-600 flex items-center justify-center">
+                    <Check className="w-5 h-5 text-cream-50" strokeWidth={3} />
+                  </div>
+                  <span className="font-display text-2xl font-semibold text-brand-900">Guest Check</span>
+                </div>
+
+                <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl font-semibold tracking-tight text-brand-900 leading-[1.05]">
+                  Real guests.
+                  <br />
+                  Real feedback.
+                </h1>
+
+                {/* Cursive script with hand-drawn underline */}
+                <div className="relative inline-block mt-2">
+                  <span className="font-script text-6xl lg:text-7xl text-brand-500 leading-none">
+                    Better stays.
+                  </span>
+                  <svg
+                    className="absolute left-0 -bottom-2 w-full"
+                    height="14"
+                    viewBox="0 0 320 14"
+                    preserveAspectRatio="none"
+                    fill="none"
+                  >
+                    <path
+                      d="M2 9 C 60 2, 130 13, 200 6 S 300 4, 318 8"
+                      stroke="#5d8142"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
+
+                <p className="mt-8 text-lg text-brand-900/70 max-w-md leading-relaxed">
+                  Guest Check is a guest review site built for accommodation
+                  property owners and managers.
+                </p>
+
+                <ul className="mt-8 space-y-5 max-w-md">
+                  {[
+                    {
+                      icon: MessageCircle,
+                      title: 'Collect genuine guest reviews',
+                      desc: 'Showcase real experiences that build trust.',
+                    },
+                    {
+                      icon: BarChart3,
+                      title: 'Improve your property',
+                      desc: 'Use feedback to make data-driven improvements.',
+                    },
+                    {
+                      icon: Heart,
+                      title: 'Build your reputation',
+                      desc: 'Stand out, attract more guests and grow your bookings.',
+                    },
+                  ].map(({ icon: Icon, title, desc }) => (
+                    <li key={title} className="flex items-start gap-4">
+                      <div className="w-11 h-11 rounded-full bg-brand-700 flex items-center justify-center flex-shrink-0">
+                        <Icon className="w-5 h-5 text-cream-50" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-brand-900">{title}</p>
+                        <p className="text-sm text-brand-900/60 leading-snug">{desc}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  <Link
+                    to="/register"
+                    className="btn bg-brand-700 text-cream-50 hover:bg-brand-800 font-semibold px-8 py-3"
+                  >
+                    Register your property
+                  </Link>
+                  <a href="#features" className="text-brand-700 font-medium hover:text-brand-900">
+                    Learn more →
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: coastal bedroom hero image with overlapping review card */}
+            <div className="relative">
+              <div className="relative aspect-[4/5] rounded-[2.5rem] overflow-hidden bg-cream-200 shadow-xl">
+                <img
+                  src="/hero-bedroom.jpg"
+                  alt="Coastal bedroom with ocean view"
+                  className="absolute inset-0 w-full h-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                {/* Soft fallback gradient if image is missing */}
+                <div className="absolute inset-0 bg-gradient-to-br from-cream-200 via-brand-100 to-brand-200 -z-0" />
+              </div>
+
+              {/* Overlapping testimonial card */}
+              <div className="absolute -left-4 sm:-left-8 bottom-8 w-[88%] sm:w-[78%] bg-white rounded-2xl shadow-xl p-5 sm:p-6">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="font-display text-xl font-semibold text-brand-900">
+                      Oceanview Villa
+                    </p>
+                    <p className="text-sm text-brand-900/60">by Seaside Stays</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="flex gap-0.5">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Star key={i} className="w-5 h-5 text-brand-600" fill="currentColor" />
+                    ))}
+                  </div>
+                  <span className="font-semibold text-brand-900">4.8/5</span>
+                </div>
+                <p className="text-xs text-brand-900/60 mb-4">Based on 128 guest reviews</p>
+
+                <div className="border-t border-cream-200 pt-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-9 h-9 rounded-full bg-brand-200" />
+                    <div>
+                      <p className="text-sm font-semibold text-brand-900">Sarah M.</p>
+                      <p className="text-xs text-brand-900/50">May 12, 2024</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-0.5 mb-2">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Star key={i} className="w-3.5 h-3.5 text-brand-600" fill="currentColor" />
+                    ))}
+                  </div>
+                  <p className="text-sm text-brand-900/80 italic">
+                    "Beautiful property, spotlessly clean and an amazing view.
+                    The host was incredibly helpful. We'll be back!"
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
-          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight mb-6 leading-tight">
-            Know Your Guests
-            <br />
-            <span className="text-brand-300">Before They Arrive</span>
-          </h1>
-          <p className="text-xl text-brand-100 max-w-3xl mx-auto mb-10 leading-relaxed">
-            The verified review platform built for accommodation businesses. Leave and read guest reviews,
-            get real-time caller ID alerts at reception, and connect with every major booking system.
-          </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link to="/register" className="btn bg-white text-brand-700 hover:bg-brand-50 font-semibold px-8 py-3 text-lg">
-              Register Your Property — Free Trial
-            </Link>
-            <a href="#features" className="btn border border-white/30 text-white hover:bg-white/10 px-8 py-3 text-lg">
-              Learn More
-            </a>
+
+          {/* Pill row of trust attributes */}
+          <div className="mt-16 lg:mt-20 flex justify-center">
+            <div className="bg-brand-700 rounded-full px-8 py-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-4 shadow-lg">
+              {[
+                { icon: ShieldCheck, label: 'Trust & Transparency' },
+                { icon: Users, label: 'Guest Powered' },
+                { icon: Home, label: 'For Property Professionals' },
+                { icon: TrendingUp, label: 'Grow Your Business' },
+              ].map(({ icon: Icon, label }, i, arr) => (
+                <div key={label} className="flex items-center gap-3 text-cream-50">
+                  <div className="flex flex-col items-center gap-1">
+                    <Icon className="w-5 h-5" />
+                    <span className="text-xs font-medium text-center leading-tight max-w-[7rem]">{label}</span>
+                  </div>
+                  {i < arr.length - 1 && <span className="hidden sm:inline-block w-px h-10 bg-cream-50/30" />}
+                </div>
+              ))}
+            </div>
           </div>
-          <p className="text-sm text-brand-200 mt-6">No credit card required • 14-day free trial • Verified properties only</p>
         </div>
       </section>
 
       {/* Stats */}
-      <section className="bg-slate-900 text-white py-12">
+      <section className="bg-brand-900 text-cream-50 py-12">
         <div className="max-w-7xl mx-auto px-4 grid grid-cols-2 sm:grid-cols-4 gap-8 text-center">
           {[
             { value: '2,400+', label: 'Properties' },
@@ -117,30 +257,30 @@ export default function Landing() {
             { value: '$2.1M', label: 'Damage Prevented' },
           ].map(({ value, label }) => (
             <div key={label}>
-              <div className="text-3xl font-bold text-brand-300">{value}</div>
-              <div className="text-sm text-slate-400 mt-1">{label}</div>
+              <div className="font-display text-3xl font-semibold text-brand-300">{value}</div>
+              <div className="text-sm text-cream-50/60 mt-1">{label}</div>
             </div>
           ))}
         </div>
       </section>
 
       {/* Features */}
-      <section id="features" className="py-24 bg-white">
+      <section id="features" className="py-24 bg-cream-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-slate-900 mb-4">Everything You Need to Protect Your Property</h2>
-            <p className="text-lg text-slate-500 max-w-2xl mx-auto">
-              Built by hoteliers, for hoteliers. GuestCheck gives you the insights you need to make confident decisions.
+            <h2 className="font-display text-4xl font-semibold text-brand-900 mb-4">Everything you need to protect your property</h2>
+            <p className="text-lg text-brand-900/60 max-w-2xl mx-auto">
+              Built by hoteliers, for hoteliers. Guest Check gives you the insights to make confident decisions.
             </p>
           </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {FEATURES.map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="p-6 rounded-2xl border border-slate-100 hover:border-brand-200 hover:shadow-lg transition-all">
-                <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center mb-4">
-                  <Icon className="w-5 h-5 text-brand-600" />
+              <div key={title} className="p-7 rounded-3xl bg-white border border-cream-200 hover:shadow-lg hover:border-brand-200 transition-all">
+                <div className="w-12 h-12 bg-brand-700 rounded-full flex items-center justify-center mb-5">
+                  <Icon className="w-5 h-5 text-cream-50" />
                 </div>
-                <h3 className="font-semibold text-lg text-slate-900 mb-2">{title}</h3>
-                <p className="text-slate-500 text-sm leading-relaxed">{desc}</p>
+                <h3 className="font-display font-semibold text-lg text-brand-900 mb-2">{title}</h3>
+                <p className="text-brand-900/60 text-sm leading-relaxed">{desc}</p>
               </div>
             ))}
           </div>
@@ -148,9 +288,9 @@ export default function Landing() {
       </section>
 
       {/* How it works */}
-      <section className="py-24 bg-slate-50">
+      <section className="py-24 bg-cream-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-4xl font-bold text-center text-slate-900 mb-16">How GuestCheck Works</h2>
+          <h2 className="font-display text-4xl font-semibold text-center text-brand-900 mb-16">How Guest Check works</h2>
           <div className="grid md:grid-cols-4 gap-6">
             {[
               { step: '1', title: 'Register & Verify', desc: 'Apply as an accommodation business. Our team verifies your property within 24 hours.' },
@@ -159,9 +299,9 @@ export default function Landing() {
               { step: '4', title: 'Make Informed Decisions', desc: 'Look up arriving guests, see their history, and act on real-time caller ID alerts.' },
             ].map(({ step, title, desc }) => (
               <div key={step} className="text-center">
-                <div className="w-12 h-12 bg-brand-600 text-white rounded-xl flex items-center justify-center text-xl font-bold mx-auto mb-4">{step}</div>
-                <h3 className="font-semibold text-slate-900 mb-2">{title}</h3>
-                <p className="text-sm text-slate-500">{desc}</p>
+                <div className="w-14 h-14 bg-brand-700 text-cream-50 rounded-full flex items-center justify-center font-display text-2xl font-semibold mx-auto mb-5">{step}</div>
+                <h3 className="font-display font-semibold text-lg text-brand-900 mb-2">{title}</h3>
+                <p className="text-sm text-brand-900/60 leading-relaxed">{desc}</p>
               </div>
             ))}
           </div>
@@ -169,21 +309,21 @@ export default function Landing() {
       </section>
 
       {/* Testimonials */}
-      <section className="py-24 bg-white">
+      <section className="py-24 bg-cream-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-4xl font-bold text-center text-slate-900 mb-16">Trusted by Property Managers</h2>
+          <h2 className="font-display text-4xl font-semibold text-center text-brand-900 mb-16">Trusted by property managers</h2>
           <div className="grid md:grid-cols-3 gap-8">
             {TESTIMONIALS.map(({ quote, name, role, rating }) => (
-              <div key={name} className="p-6 rounded-2xl bg-slate-50">
+              <div key={name} className="p-7 rounded-3xl bg-cream-100 border border-cream-200">
                 <div className="flex gap-1 mb-4">
                   {Array.from({ length: rating }).map((_, i) => (
-                    <Star key={i} className="w-4 h-4 text-amber-400" fill="currentColor" />
+                    <Star key={i} className="w-4 h-4 text-brand-600" fill="currentColor" />
                   ))}
                 </div>
-                <p className="text-slate-700 italic mb-4">"{quote}"</p>
+                <p className="text-brand-900/80 italic mb-4 leading-relaxed">"{quote}"</p>
                 <div>
-                  <p className="font-semibold text-slate-900 text-sm">{name}</p>
-                  <p className="text-xs text-slate-500">{role}</p>
+                  <p className="font-semibold text-brand-900 text-sm">{name}</p>
+                  <p className="text-xs text-brand-900/50">{role}</p>
                 </div>
               </div>
             ))}
@@ -192,46 +332,46 @@ export default function Landing() {
       </section>
 
       {/* Pricing */}
-      <section id="pricing" className="py-24 bg-slate-50">
+      <section id="pricing" className="py-24 bg-cream-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-slate-900 mb-4">Simple, Transparent Pricing</h2>
-            <p className="text-slate-500">All plans include a 14-day free trial. No credit card required.</p>
+            <h2 className="font-display text-4xl font-semibold text-brand-900 mb-4">Simple, transparent pricing</h2>
+            <p className="text-brand-900/60">All plans include a 14-day free trial. No credit card required.</p>
           </div>
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
             {PLANS.map(({ name, price, period, popular, features }) => (
               <div
                 key={name}
-                className={`rounded-2xl p-8 relative ${
+                className={`rounded-3xl p-8 relative ${
                   popular
-                    ? 'bg-brand-700 text-white shadow-2xl scale-105'
-                    : 'bg-white border border-slate-200'
+                    ? 'bg-brand-700 text-cream-50 shadow-2xl scale-105'
+                    : 'bg-white border border-cream-200'
                 }`}
               >
                 {popular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-400 text-slate-900 text-xs font-bold px-3 py-1 rounded-full">
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-cream-200 text-brand-900 text-xs font-semibold px-3 py-1 rounded-full">
                     Most Popular
                   </div>
                 )}
-                <h3 className={`text-lg font-bold mb-2 ${popular ? 'text-white' : 'text-slate-900'}`}>{name}</h3>
+                <h3 className={`font-display text-lg font-semibold mb-2 ${popular ? 'text-cream-50' : 'text-brand-900'}`}>{name}</h3>
                 <div className="flex items-end gap-1 mb-6">
-                  <span className={`text-4xl font-extrabold ${popular ? 'text-white' : 'text-slate-900'}`}>{price}</span>
-                  <span className={`text-sm mb-1 ${popular ? 'text-brand-200' : 'text-slate-500'}`}>{period}</span>
+                  <span className={`font-display text-4xl font-semibold ${popular ? 'text-cream-50' : 'text-brand-900'}`}>{price}</span>
+                  <span className={`text-sm mb-1 ${popular ? 'text-cream-200' : 'text-brand-900/50'}`}>{period}</span>
                 </div>
                 <ul className="space-y-3 mb-8">
                   {features.map((f) => (
-                    <li key={f} className={`flex items-center gap-2 text-sm ${popular ? 'text-brand-100' : 'text-slate-600'}`}>
-                      <Check className={`w-4 h-4 flex-shrink-0 ${popular ? 'text-emerald-300' : 'text-emerald-500'}`} />
+                    <li key={f} className={`flex items-center gap-2 text-sm ${popular ? 'text-cream-100' : 'text-brand-900/70'}`}>
+                      <Check className={`w-4 h-4 flex-shrink-0 ${popular ? 'text-cream-200' : 'text-brand-600'}`} />
                       {f}
                     </li>
                   ))}
                 </ul>
                 <Link
                   to="/register"
-                  className={`w-full block text-center py-3 rounded-xl font-semibold transition-all ${
+                  className={`w-full block text-center py-3 rounded-full font-semibold transition-all ${
                     popular
-                      ? 'bg-white text-brand-700 hover:bg-brand-50'
-                      : 'bg-brand-600 text-white hover:bg-brand-700'
+                      ? 'bg-cream-50 text-brand-700 hover:bg-cream-100'
+                      : 'bg-brand-700 text-cream-50 hover:bg-brand-800'
                   }`}
                 >
                   Start Free Trial
@@ -243,30 +383,42 @@ export default function Landing() {
       </section>
 
       {/* CTA */}
-      <section className="py-20 bg-brand-700 text-white text-center">
-        <div className="max-w-3xl mx-auto px-4">
-          <h2 className="text-4xl font-bold mb-4">Ready to Protect Your Property?</h2>
-          <p className="text-brand-200 text-lg mb-8">Join thousands of accommodation businesses that rely on GuestCheck.</p>
-          <Link to="/register" className="btn bg-white text-brand-700 hover:bg-brand-50 font-semibold px-10 py-4 text-lg">
-            Register Your Property Today
-          </Link>
+      <section className="py-20 bg-brand-700 text-cream-50">
+        <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-8">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-full bg-cream-50 flex items-center justify-center flex-shrink-0">
+              <Building2 className="w-6 h-6 text-brand-700" />
+            </div>
+            <div>
+              <p className="font-display text-2xl sm:text-3xl font-semibold leading-tight">Join Guest Check today</p>
+              <Link
+                to="/register"
+                className="inline-block mt-2 bg-brand-500 hover:bg-brand-400 text-cream-50 text-sm font-medium px-5 py-2 rounded-full transition-colors"
+              >
+                www.guestcheck.site
+              </Link>
+            </div>
+          </div>
+          <div className="text-center sm:text-right">
+            <p className="text-cream-100">Real feedback.</p>
+            <p className="font-script text-3xl text-cream-50">Stronger hospitality.</p>
+          </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="bg-slate-900 text-slate-400 py-12">
+      <footer className="bg-brand-900 text-cream-100/70 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 bg-brand-600 rounded-md" />
-              <span className="font-bold text-white">GuestCheck</span>
+            <div className="flex items-center gap-3">
+              <img src="/logo.png" alt="GuestCheck" style={{ width: 140 }} className="brightness-0 invert opacity-90" />
             </div>
             <p className="text-xs">© {new Date().getFullYear()} GuestCheck Ltd. All rights reserved.</p>
             <div className="flex gap-4 text-xs">
-              <a href="#" className="hover:text-white">Privacy Policy</a>
-              <a href="#" className="hover:text-white">Terms of Service</a>
-              <a href="#" className="hover:text-white">GDPR</a>
-              <a href="#" className="hover:text-white">Contact</a>
+              <a href="#" className="hover:text-cream-50">Privacy Policy</a>
+              <a href="#" className="hover:text-cream-50">Terms of Service</a>
+              <a href="#" className="hover:text-cream-50">GDPR</a>
+              <a href="#" className="hover:text-cream-50">Contact</a>
             </div>
           </div>
         </div>
