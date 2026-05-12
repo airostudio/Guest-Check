@@ -7,18 +7,13 @@ if (process.env.NODE_ENV !== 'production') {
   dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 }
 
-const jwtSecret = process.env.JWT_SECRET;
-if (!jwtSecret && process.env.NODE_ENV === 'production') {
-  throw new Error('JWT_SECRET environment variable is required in production');
-}
-
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '4000', 10),
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
 
   jwt: {
-    secret: jwtSecret || 'dev_only_secret_not_for_production',
+    secret: process.env.JWT_SECRET || 'changeme_set_JWT_SECRET_in_vercel',
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
 
