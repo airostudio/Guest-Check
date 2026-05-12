@@ -5,12 +5,19 @@ function resolveSupabaseUrl(): string {
   const explicit = process.env.SUPABASE_URL;
   if (explicit) return explicit.replace(/\/$/, '');
 
-  // Derive from DATABASE_URL: postgresql://...@db.<ref>.supabase.co:...
   const dbUrl = process.env.DATABASE_URL ?? '';
-  const m = dbUrl.match(/@(?:db\.)?([a-z0-9]+)\.supabase\.co/i);
-  if (m) return `https://${m[1]}.supabase.co`;
 
-  throw new Error('SUPABASE_URL is not set and could not be derived from DATABASE_URL');
+  // Direct URL:  postgresql://postgres:pw@db.PROJECTREF.supabase.co:5432/postgres
+  const directMatch = dbUrl.match(/@db\.([a-z0-9]+)\.supabase\.co/i);
+  if (directMatch) return `https://${directMatch[1]}.supabase.co`;
+
+  // Pooler URL:  postgresql://postgres.PROJECTREF:pw@aws-0-*.pooler.supabase.com:5432/postgres
+  const poolerMatch = dbUrl.match(/\/\/postgres\.([a-z0-9]+):/i);
+  if (poolerMatch) return `https://${poolerMatch[1]}.supabase.co`;
+
+  throw new Error(
+    'Cannot derive SUPABASE_URL. Add SUPABASE_URL env var in Vercel: https://YOURPROJECTREF.supabase.co'
+  );
 }
 
 function getKey(): string {
