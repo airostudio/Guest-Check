@@ -172,7 +172,7 @@ export default function Landing() {
             <div className="relative">
               <div className="relative aspect-[4/5] rounded-[2.5rem] overflow-hidden bg-cream-200 shadow-xl">
                 <img
-                  src="https://images.unsplash.com/photo-1540541338287-41700207dee6?auto=format&fit=crop&w=900&q=80"
+                  src="/hero-bedroom.jpg"
                   alt="Coastal bedroom with ocean view"
                   className="absolute inset-0 w-full h-full object-cover"
                 />
