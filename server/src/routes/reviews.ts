@@ -1,11 +1,21 @@
 import { Router, Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import crypto from 'crypto';
-import { ReviewStatus } from '@prisma/client';
+import { ReviewStatus, SubscriptionTier } from '@prisma/client';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { refreshGuestScore } from './guests';
 import { db } from '../lib/supabase';
+import config from '../config/config';
+
+function planLimits(tier: SubscriptionTier | undefined) {
+  switch (tier) {
+    case SubscriptionTier.ENTERPRISE:   return config.plans.enterprise;
+    case SubscriptionTier.PROFESSIONAL: return config.plans.professional;
+    case SubscriptionTier.BASIC:        return config.plans.basic;
+    default:                            return config.plans.freeTrial;
+  }
+}
 
 const router = Router();
 
@@ -98,6 +108,24 @@ router.post(
     if (!propertyId) {
       res.status(400).json({ success: false, message: 'You must be associated with a property to leave reviews' });
       return;
+    }
+
+    const limits = planLimits(req.user!.subscriptionTier);
+    if (limits.reviewsPerMonth !== -1) {
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+      const monthCount = await db.count('Review', {
+        propertyId,
+        createdAt: { gte: startOfMonth.toISOString() },
+      });
+      if (monthCount >= limits.reviewsPerMonth) {
+        res.status(429).json({
+          success: false,
+          message: `You've used all ${limits.reviewsPerMonth} reviews this month on your current plan. Upgrade to continue.`,
+        });
+        return;
+      }
     }
 
     const guest = await db.selectOne<GuestRef>('Guest', { id: guestId }, { select: 'id,firstName,lastName' });

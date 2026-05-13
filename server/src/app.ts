@@ -18,6 +18,7 @@ import subscriptionRoutes from './routes/subscriptions';
 import integrationRoutes from './routes/integrations';
 import phoneRoutes from './routes/phone';
 import adminRoutes from './routes/admin';
+import cronRoutes from './routes/cron';
 
 const app = express();
 
@@ -130,6 +131,7 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/phone', phoneLimiter, phoneRoutes);
 app.use('/api/admin', adminLimiter, adminRoutes);
+app.use('/api/cron', cronRoutes);
 
 // ─── 404 + Error Handlers ─────────────────────────────────────────────────────
 

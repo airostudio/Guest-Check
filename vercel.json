@@ -25,5 +25,11 @@
     "api/index.ts": {
       "maxDuration": 30
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/review-nudge",
+      "schedule": "0 8 * * *"
+    }
+  ]
 }

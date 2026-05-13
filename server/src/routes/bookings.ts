@@ -5,6 +5,7 @@ import { BookingSource, BookingStatus, RiskLevel } from '@prisma/client';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { db, Filter } from '../lib/supabase';
+import { emailService } from '../services/email.service';
 
 const router = Router();
 
@@ -32,7 +33,7 @@ interface GuestRef {
   firstName: string;
   lastName: string;
   nationality?: string | null;
-  averageRating?: number | null;
+  averageRating: number | null;
   totalReviews?: number;
   riskLevel: RiskLevel;
   profileImage?: string | null;
@@ -112,7 +113,23 @@ router.post(
       updatedAt: now,
     });
 
-    const guest = await db.selectOne<GuestRef>('Guest', { id: guestId }, { select: 'id,firstName,lastName,riskLevel' });
+    const guest = await db.selectOne<GuestRef>('Guest', { id: guestId }, { select: 'id,firstName,lastName,averageRating,riskLevel' });
+
+    if (guest && (guest.riskLevel === RiskLevel.HIGH_RISK || guest.riskLevel === RiskLevel.POOR)) {
+      const [property, admins] = await Promise.all([
+        db.selectOne<{ name: string }>('Property', { id: propertyId }, { select: 'name' }),
+        db.select<{ email: string; firstName: string }>('User', { propertyId, role: 'PROPERTY_ADMIN' }, { select: 'email,firstName' }),
+      ]);
+      if (property && admins.length > 0) {
+        const guestName = `${guest.firstName} ${guest.lastName}`;
+        const riskLevel = guest.riskLevel as 'HIGH_RISK' | 'POOR';
+        for (const admin of admins) {
+          emailService
+            .sendHighRiskAlert(admin.email, property.name, guestName, guest.averageRating ?? 0, riskLevel)
+            .catch(console.error);
+        }
+      }
+    }
 
     res.status(201).json({ success: true, data: { ...booking, guest } });
   }
