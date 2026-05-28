@@ -76,15 +76,22 @@ export default function ComingSoon() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email) return;
     setLoading(true);
-    // Fire and forget — wire to a real list when ready
-    setTimeout(() => {
+    try {
+      await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+    } catch {
+      // show success regardless — don't block the user on email failures
+    } finally {
       setLoading(false);
       setSubmitted(true);
-    }, 600);
+    }
   }
 
   return (

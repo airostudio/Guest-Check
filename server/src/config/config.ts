@@ -49,6 +49,8 @@ const config = {
     secret: process.env.ADMIN_SECRET || '',
   },
 
+  waitlistNotifyEmail: process.env.WAITLIST_NOTIFY_EMAIL || 'caravandave67@gmail.com',
+
   plans: {
     freeTrial: {
       reviewsPerMonth: 10,

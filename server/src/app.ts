@@ -19,6 +19,7 @@ import integrationRoutes from './routes/integrations';
 import phoneRoutes from './routes/phone';
 import adminRoutes from './routes/admin';
 import cronRoutes from './routes/cron';
+import waitlistRoutes from './routes/waitlist';
 
 const app = express();
 
@@ -132,6 +133,7 @@ app.use('/api/integrations', integrationRoutes);
 app.use('/api/phone', phoneLimiter, phoneRoutes);
 app.use('/api/admin', adminLimiter, adminRoutes);
 app.use('/api/cron', cronRoutes);
+app.use('/api/waitlist', waitlistRoutes);
 
 // ─── 404 + Error Handlers ─────────────────────────────────────────────────────
 
