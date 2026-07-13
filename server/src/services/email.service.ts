@@ -168,4 +168,107 @@ export const emailService = {
       `,
     });
   },
+
+  async sendNewApplicationAlert(details: {
+    applicantName: string; applicantEmail: string; applicantPhone: string; jobTitle: string;
+    propertyName: string; propertyType: string; propertyAddress: string;
+    propertyCity: string; propertyCountry: string; numberOfRooms: string;
+    legalBusinessName: string; businessRegNumber: string; vatNumber: string;
+    countryOfIncorporation: string; yearsInOperation: string;
+    propertyWebsite: string; propertyPhone: string;
+    bookingPlatforms: string[]; listingUrlBookingCom: string;
+    listingUrlAirbnb: string; listingUrlOther: string;
+    industryMemberships: string; howHeard: string;
+  }): Promise<void> {
+    const row = (label: string, value: string) =>
+      value
+        ? `<tr><td style="padding:6px 12px;font-weight:600;color:#374151;width:200px;vertical-align:top">${label}</td><td style="padding:6px 12px;color:#111827">${value}</td></tr>`
+        : '';
+
+    await transporter.sendMail({
+      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
+      to: config.waitlistNotifyEmail,
+      subject: `New GuestCheck application: ${details.propertyName} — ${details.propertyCity}, ${details.propertyCountry}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 680px; margin: 0 auto;">
+          <div style="background:#1e2b16;padding:20px 24px;border-radius:8px 8px 0 0;">
+            <h1 style="color:#a4bd80;margin:0;font-size:20px;">New Property Application</h1>
+            <p style="color:#6b8f4e;margin:4px 0 0;font-size:14px;">Review and verify before activating</p>
+          </div>
+
+          <div style="border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;overflow:hidden;">
+            <div style="background:#f9fafb;padding:12px 16px;border-bottom:1px solid #e5e7eb;">
+              <p style="margin:0;font-weight:700;color:#111827;font-size:16px;">${details.propertyName}</p>
+              <p style="margin:2px 0 0;color:#6b7280;font-size:13px;">${details.propertyCity}, ${details.propertyCountry}</p>
+            </div>
+
+            <table style="width:100%;border-collapse:collapse;">
+              <tr style="background:#f0f4ea;"><td colspan="2" style="padding:8px 12px;font-weight:700;color:#385128;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Applicant</td></tr>
+              ${row('Name', details.applicantName)}
+              ${row('Email', `<a href="mailto:${details.applicantEmail}">${details.applicantEmail}</a>`)}
+              ${row('Phone', details.applicantPhone)}
+              ${row('Role', details.jobTitle)}
+
+              <tr style="background:#f0f4ea;"><td colspan="2" style="padding:8px 12px;font-weight:700;color:#385128;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Property</td></tr>
+              ${row('Property type', details.propertyType)}
+              ${row('Number of rooms', details.numberOfRooms)}
+              ${row('Address', `${details.propertyAddress}, ${details.propertyCity}, ${details.propertyCountry}`)}
+              ${row('Property phone', details.propertyPhone)}
+              ${row('Website', details.propertyWebsite ? `<a href="${details.propertyWebsite}">${details.propertyWebsite}</a>` : '')}
+
+              <tr style="background:#f0f4ea;"><td colspan="2" style="padding:8px 12px;font-weight:700;color:#385128;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Business Identity</td></tr>
+              ${row('Legal business name', details.legalBusinessName || details.propertyName)}
+              ${row('Business reg number', details.businessRegNumber)}
+              ${row('VAT / GST number', details.vatNumber)}
+              ${row('Country of incorporation', details.countryOfIncorporation)}
+              ${row('Years in operation', details.yearsInOperation)}
+
+              <tr style="background:#f0f4ea;"><td colspan="2" style="padding:8px 12px;font-weight:700;color:#385128;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Online Presence</td></tr>
+              ${row('Platforms', details.bookingPlatforms.join(', '))}
+              ${row('Booking.com URL', details.listingUrlBookingCom ? `<a href="${details.listingUrlBookingCom}">${details.listingUrlBookingCom}</a>` : '')}
+              ${row('Airbnb URL', details.listingUrlAirbnb ? `<a href="${details.listingUrlAirbnb}">${details.listingUrlAirbnb}</a>` : '')}
+              ${row('Other listing URL', details.listingUrlOther ? `<a href="${details.listingUrlOther}">${details.listingUrlOther}</a>` : '')}
+              ${row('Industry memberships', details.industryMemberships)}
+              ${row('How they heard', details.howHeard)}
+            </table>
+
+            <div style="padding:16px;background:#fef9c3;border-top:1px solid #fde68a;">
+              <p style="margin:0;font-size:13px;color:#92400e;">
+                <strong>Action required:</strong> Log in to the GuestCheck admin panel to approve or reject this application.
+              </p>
+            </div>
+          </div>
+        </div>
+      `,
+    });
+  },
+
+  async sendApplicationReceived(to: string, firstName: string, propertyName: string): Promise<void> {
+    await transporter.sendMail({
+      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
+      to,
+      subject: `Your GuestCheck application has been received — ${propertyName}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background:#1e2b16;padding:20px 24px;border-radius:8px 8px 0 0;">
+            <h1 style="color:#a4bd80;margin:0;font-size:20px;">Application Received</h1>
+          </div>
+          <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
+            <p>Hi ${firstName},</p>
+            <p>Thank you for applying to join GuestCheck with <strong>${propertyName}</strong>.</p>
+            <p>Your application is now being reviewed by our team. Here's what happens next:</p>
+            <ol style="line-height:2;">
+              <li>We review your application details (usually within 24 hours)</li>
+              <li>We may contact you on your provided phone number to verify your details</li>
+              <li>Once approved, you'll receive a confirmation email with your login details</li>
+            </ol>
+            <p style="color:#6b7280;font-size:13px;margin-top:24px;">
+              If you have any questions in the meantime, please reply to this email.<br/>
+              <strong>Do not attempt to log in until you receive your approval email</strong> — your account will not be active until verification is complete.
+            </p>
+          </div>
+        </div>
+      `,
+    });
+  },
 };

@@ -126,8 +126,15 @@ router.post(
     const admins = await db.select<UserRow>(
       'User',
       { propertyId: property.id, role: 'PROPERTY_ADMIN' },
-      { select: 'email,firstName', limit: 1 }
+      { select: 'id,email,firstName', limit: 5 }
     );
+
+    // Activate all users for this property now that it's approved
+    for (const admin of admins) {
+      db.update('User', { id: admin.id }, { isActive: true, updatedAt: new Date().toISOString() })
+        .catch(() => {});
+    }
+
     const admin = admins[0];
     if (admin) {
       emailService

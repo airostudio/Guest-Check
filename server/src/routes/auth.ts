@@ -48,18 +48,27 @@ interface PropertyRow {
 
 router.post('/register', async (req: Request, res: Response): Promise<void> => {
   const {
-    email, password, firstName, lastName,
+    email, password, firstName, lastName, phone: applicantPhone, jobTitle,
     propertyName, propertyType, propertyCity,
     propertyCountry, propertyAddress, propertyPostcode,
     propertyPhone, propertyWebsite, vatNumber,
+    numberOfRooms, starRating,
+    legalBusinessName, businessRegNumber,
+    countryOfIncorporation, yearsInOperation,
+    bookingPlatforms, listingUrlBookingCom, listingUrlAirbnb, listingUrlOther,
+    industryMemberships, howHeard,
   } = req.body;
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
     res.status(400).json({ success: false, message: 'A valid email address is required' });
     return;
   }
-  if (!password || password.length < 8) {
-    res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
+  if (!password || password.length < 10) {
+    res.status(400).json({ success: false, message: 'Password must be at least 10 characters' });
+    return;
+  }
+  if (!businessRegNumber || businessRegNumber.trim().length < 3) {
+    res.status(400).json({ success: false, message: 'Business registration number is required' });
     return;
   }
   if (!firstName || firstName.trim().length < 2) {
@@ -105,6 +114,22 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     const propertyId = crypto.randomBytes(12).toString('base64url');
     const userId = crypto.randomBytes(12).toString('base64url');
 
+    const extraInfo = JSON.stringify({
+      applicantJobTitle: jobTitle || '',
+      applicantPhone: applicantPhone || '',
+      numberOfRooms: numberOfRooms || '',
+      starRating: starRating || '',
+      legalBusinessName: legalBusinessName || '',
+      countryOfIncorporation: countryOfIncorporation || '',
+      yearsInOperation: yearsInOperation || '',
+      bookingPlatforms: Array.isArray(bookingPlatforms) ? bookingPlatforms.join(', ') : '',
+      listingUrlBookingCom: listingUrlBookingCom || '',
+      listingUrlAirbnb: listingUrlAirbnb || '',
+      listingUrlOther: listingUrlOther || '',
+      industryMemberships: industryMemberships || '',
+      howHeard: howHeard || '',
+    });
+
     const property = await db.insert<PropertyRow>('Property', {
       id: propertyId,
       name: propertyName.trim(),
@@ -116,6 +141,8 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       phone: propertyPhone?.trim() || null,
       website: propertyWebsite?.trim() || null,
       vatNumber: vatNumber?.trim() || null,
+      businessRegNumber: businessRegNumber?.trim() || null,
+      description: extraInfo,
       billingEmail: normalizedEmail,
       status: 'PENDING_VERIFICATION',
       subscriptionTier: 'FREE_TRIAL',
@@ -132,9 +159,10 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         role: UserRole.PROPERTY_ADMIN,
+        phone: applicantPhone?.trim() || null,
         propertyId: property.id,
         emailVerified: true,
-        isActive: true,
+        isActive: false,
         createdAt: now,
         updatedAt: now,
       });
@@ -148,11 +176,42 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       throw userErr;
     }
 
-    logger.info(`New registration: ${normalizedEmail} for property "${property.name}" (${property.id})`);
+    logger.info(`New application: ${normalizedEmail} for property "${property.name}" (${property.id})`);
+
+    // Notify admin with full application details
+    emailService.sendNewApplicationAlert({
+      applicantName: `${firstName.trim()} ${lastName.trim()}`,
+      applicantEmail: normalizedEmail,
+      applicantPhone: applicantPhone || '',
+      jobTitle: jobTitle || '',
+      propertyName: propertyName.trim(),
+      propertyType,
+      propertyAddress: propertyAddress.trim(),
+      propertyCity: propertyCity.trim(),
+      propertyCountry: propertyCountry.trim(),
+      numberOfRooms: numberOfRooms || '',
+      legalBusinessName: legalBusinessName || '',
+      businessRegNumber: businessRegNumber.trim(),
+      vatNumber: vatNumber || '',
+      countryOfIncorporation: countryOfIncorporation || '',
+      yearsInOperation: yearsInOperation || '',
+      propertyWebsite: propertyWebsite || '',
+      propertyPhone: propertyPhone || '',
+      bookingPlatforms: Array.isArray(bookingPlatforms) ? bookingPlatforms : [],
+      listingUrlBookingCom: listingUrlBookingCom || '',
+      listingUrlAirbnb: listingUrlAirbnb || '',
+      listingUrlOther: listingUrlOther || '',
+      industryMemberships: industryMemberships || '',
+      howHeard: howHeard || '',
+    }).catch((err) => logger.error('Failed to send admin application alert', err));
+
+    // Send acknowledgement to applicant
+    emailService.sendApplicationReceived(normalizedEmail, firstName.trim(), propertyName.trim())
+      .catch((err) => logger.error('Failed to send application received email', err));
 
     res.status(201).json({
       success: true,
-      message: 'Registration successful! You can now sign in. Your property will be reviewed within 24 hours.',
+      message: 'Application submitted! Our team will review your details and contact you within 24 hours.',
     });
   } catch (err) {
     logger.error('Registration error', err);
@@ -204,7 +263,10 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     }
 
     if (!user.isActive) {
-      res.status(403).json({ success: false, message: 'Your account has been deactivated' });
+      res.status(403).json({
+        success: false,
+        message: 'Your account is pending verification. You will receive an email once your application has been reviewed.',
+      });
       return;
     }
 
