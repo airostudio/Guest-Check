@@ -9,6 +9,7 @@ import { AuthRequest } from '../types';
 import { emailService } from '../services/email.service';
 import logger from '../utils/logger';
 import { db } from '../lib/supabase';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
@@ -46,7 +47,7 @@ interface PropertyRow {
 
 // ─── Register Property + Admin User ──────────────────────────────────────────
 
-router.post('/register', async (req: Request, res: Response): Promise<void> => {
+router.post('/register', asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const {
     email, password, firstName, lastName, phone: applicantPhone, jobTitle,
     propertyName, propertyType, propertyCity,
@@ -237,11 +238,11 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     logger.error('Registration error', err);
     res.status(500).json({ success: false, message: 'Registration failed. Please try again.' });
   }
-});
+}));
 
 // ─── Verify Email ─────────────────────────────────────────────────────────────
 
-router.get('/verify-email/:token', async (req: Request, res: Response): Promise<void> => {
+router.get('/verify-email/:token', asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const { token } = req.params;
 
   const user = await db.selectOne<UserRow>('User', {
@@ -262,11 +263,11 @@ router.get('/verify-email/:token', async (req: Request, res: Response): Promise<
   });
 
   res.json({ success: true, message: 'Email verified successfully. You can now log in.' });
-});
+}));
 
 // ─── Login ────────────────────────────────────────────────────────────────────
 
-router.post('/login', async (req: Request, res: Response): Promise<void> => {
+router.post('/login', asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -295,7 +296,10 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       property = await db.selectOne<PropertyRow>(
         'Property',
         { id: user.propertyId },
-        { select: 'id,name,status,subscriptionTier,subscriptionStatus,trialEndsAt' }
+        // Must match /auth/me — the client's Property type marks type/city/
+        // country as required and Dashboard renders "{name} · {city}". A thinner
+        // payload here left a dangling separator for the whole session.
+        { select: 'id,name,type,city,country,status,subscriptionTier,subscriptionStatus,trialEndsAt,logoUrl' }
       );
     }
 
@@ -325,11 +329,11 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     logger.error('Login error', err);
     res.status(500).json({ success: false, message: 'Login failed. Please try again.' });
   }
-});
+}));
 
 // ─── Get Current User ─────────────────────────────────────────────────────────
 
-router.get('/me', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/me', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const user = await db.selectOne<UserRow>(
     'User',
     { id: req.user!.id },
@@ -351,11 +355,11 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response): Promise
   }
 
   res.json({ success: true, data: { ...user, property } });
-});
+}));
 
 // ─── Forgot Password ──────────────────────────────────────────────────────────
 
-router.post('/forgot-password', async (req: Request, res: Response): Promise<void> => {
+router.post('/forgot-password', asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const { email } = req.body;
 
   if (!email) {
@@ -384,11 +388,11 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
     logger.error('Forgot password error', err);
     res.status(500).json({ success: false, message: 'Something went wrong. Please try again.' });
   }
-});
+}));
 
 // ─── Reset Password ───────────────────────────────────────────────────────────
 
-router.post('/reset-password', async (req: Request, res: Response): Promise<void> => {
+router.post('/reset-password', asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const { token, password } = req.body;
 
   if (!token || !password || password.length < 8) {
@@ -419,11 +423,11 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
     logger.error('Reset password error', err);
     res.status(500).json({ success: false, message: 'Something went wrong. Please try again.' });
   }
-});
+}));
 
 // ─── Change Password ──────────────────────────────────────────────────────────
 
-router.post('/change-password', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/change-password', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const { currentPassword, newPassword } = req.body;
 
   if (!currentPassword || !newPassword || newPassword.length < 8) {
@@ -449,6 +453,6 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
     logger.error('Change password error', err);
     res.status(500).json({ success: false, message: 'Something went wrong. Please try again.' });
   }
-});
+}));
 
 export default router;

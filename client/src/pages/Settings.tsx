@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
@@ -14,12 +14,26 @@ export default function Settings() {
   });
 
   const [propertyForm, setPropertyForm] = useState({
-    name: property?.name || '',
-    phone: property?.phone || '',
-    website: property?.website || '',
-    description: property?.description || '',
-    billingEmail: property?.billingEmail || '',
+    name: '', phone: '', website: '', description: '', billingEmail: '',
   });
+
+  // `property` is undefined on first render (react-query hasn't resolved), so
+  // seeding state inline left every field as ''. The inputs displayed the real
+  // value via a `|| property?.x` fallback while state held '', and the PATCH
+  // handler treats '' as an intentional clear — so editing only the name
+  // silently wiped phone, website and description. Sync once data arrives.
+  const [propertyLoaded, setPropertyLoaded] = useState(false);
+  useEffect(() => {
+    if (!property || propertyLoaded) return;
+    setPropertyForm({
+      name: property.name ?? '',
+      phone: property.phone ?? '',
+      website: property.website ?? '',
+      description: property.description ?? '',
+      billingEmail: property.billingEmail ?? '',
+    });
+    setPropertyLoaded(true);
+  }, [property, propertyLoaded]);
 
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
@@ -85,25 +99,25 @@ export default function Settings() {
           <h2 className="font-semibold text-slate-900">Property Information</h2>
           <div>
             <label className="label">Property name</label>
-            <input type="text" className="input" value={propertyForm.name || property?.name || ''} onChange={(e) => setPropertyForm({ ...propertyForm, name: e.target.value })} />
+            <input type="text" className="input" value={propertyForm.name} onChange={(e) => setPropertyForm({ ...propertyForm, name: e.target.value })} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Phone</label>
-              <input type="tel" className="input" value={propertyForm.phone || property?.phone || ''} onChange={(e) => setPropertyForm({ ...propertyForm, phone: e.target.value })} />
+              <input type="tel" className="input" value={propertyForm.phone} onChange={(e) => setPropertyForm({ ...propertyForm, phone: e.target.value })} />
             </div>
             <div>
               <label className="label">Website</label>
-              <input type="url" className="input" value={propertyForm.website || property?.website || ''} onChange={(e) => setPropertyForm({ ...propertyForm, website: e.target.value })} />
+              <input type="url" className="input" value={propertyForm.website} onChange={(e) => setPropertyForm({ ...propertyForm, website: e.target.value })} />
             </div>
           </div>
           <div>
             <label className="label">Description</label>
-            <textarea className="input resize-none" rows={3} value={propertyForm.description || property?.description || ''} onChange={(e) => setPropertyForm({ ...propertyForm, description: e.target.value })} />
+            <textarea className="input resize-none" rows={3} value={propertyForm.description} onChange={(e) => setPropertyForm({ ...propertyForm, description: e.target.value })} />
           </div>
           <div>
             <label className="label">Billing email</label>
-            <input type="email" className="input" value={propertyForm.billingEmail || property?.billingEmail || ''} onChange={(e) => setPropertyForm({ ...propertyForm, billingEmail: e.target.value })} />
+            <input type="email" className="input" value={propertyForm.billingEmail} onChange={(e) => setPropertyForm({ ...propertyForm, billingEmail: e.target.value })} />
           </div>
           <button onClick={() => updateProperty.mutate(propertyForm)} disabled={updateProperty.isPending} className="btn-primary">
             {updateProperty.isPending ? 'Saving...' : 'Save Changes'}

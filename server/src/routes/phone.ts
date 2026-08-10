@@ -5,6 +5,7 @@ import { AuthRequest } from '../types';
 import { ratingToLabel } from '../utils/riskScore';
 import { db, OrCondition } from '../lib/supabase';
 import { phoneMatchVariants } from '../utils/phone';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
@@ -55,7 +56,7 @@ interface PropertyRef {
 router.get(
   '/caller/:number',
   authenticate,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const searchVariants = phoneMatchVariants(req.params.number);
 
     if (searchVariants.length === 0) {
@@ -180,7 +181,7 @@ router.get(
     });
 
     res.json({ success: true, data: callerCards });
-  }
+  })
 );
 
 function buildAlert(riskLevel: string): { type: 'danger' | 'warning' | 'success' | 'info'; title: string; message: string } | null {

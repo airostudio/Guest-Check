@@ -3,6 +3,7 @@ import { BookingStatus, ReviewStatus } from '../types/enums';
 import { db } from '../lib/supabase';
 import { emailService } from '../services/email.service';
 import logger from '../utils/logger';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
@@ -36,7 +37,7 @@ function verifyCronSecret(req: Request, res: Response): boolean {
 // no way to configure the method in vercel.json's "crons" block. POST is kept
 // so the job can still be triggered manually.
 
-const reviewNudgeHandler = async (req: Request, res: Response): Promise<void> => {
+const reviewNudgeHandler = asyncHandler(async (req: Request, res: Response): Promise<void> => {
   if (!verifyCronSecret(req, res)) return;
 
   // Vercel runs in UTC; anchor explicitly rather than relying on server-local
@@ -149,7 +150,7 @@ const reviewNudgeHandler = async (req: Request, res: Response): Promise<void> =>
 
   logger.info(`review-nudge cron: ${nudgesSent} emails sent for ${unreviewed.length} unreviewed checkouts`);
   res.json({ success: true, nudgesSent, unreviewedCheckouts: unreviewed.length });
-};
+});
 
 // GET is what Vercel Cron actually sends; POST allows manual triggering.
 router.get('/review-nudge', reviewNudgeHandler);

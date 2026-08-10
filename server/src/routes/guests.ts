@@ -8,6 +8,7 @@ import { calculateRiskLevel } from '../utils/riskScore';
 import { db, OrCondition } from '../lib/supabase';
 import { parsePagination, totalPages } from '../utils/pagination';
 import { normalizePhone, phoneMatchVariants } from '../utils/phone';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
@@ -77,7 +78,7 @@ router.get(
   '/search',
   authenticate,
   [query('q').trim().isLength({ min: 2 })],
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       res.status(400).json({ success: false, errors: errors.array() });
@@ -112,12 +113,12 @@ router.get(
       data: guests,
       pagination: { page, limit, total, totalPages: totalPages(total, limit) },
     });
-  }
+  })
 );
 
 // ─── Get Guest Profile ────────────────────────────────────────────────────────
 
-router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const { id } = req.params;
   const propertyId = req.user!.propertyId;
 
@@ -178,7 +179,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promis
       bookings,
     },
   });
-});
+}));
 
 // ─── Create or Find Guest ────────────────────────────────────────────────────
 
@@ -191,7 +192,7 @@ router.post(
     body('email').optional().isEmail().normalizeEmail(),
     body('phone').optional().isMobilePhone('any'),
   ],
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       res.status(400).json({ success: false, errors: errors.array() });
@@ -231,7 +232,7 @@ router.post(
     });
 
     res.status(201).json({ success: true, data: guest, isExisting: false });
-  }
+  })
 );
 
 // ─── Lookup Guest by Phone ────────────────────────────────────────────────────
@@ -239,7 +240,7 @@ router.post(
 router.get(
   '/lookup/phone/:number',
   authenticate,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const variants = phoneMatchVariants(req.params.number);
     if (variants.length === 0) {
       res.status(400).json({ success: false, message: 'Phone number must contain at least 7 digits' });
@@ -295,7 +296,7 @@ router.get(
       data: enriched,
       message: enriched.length === 0 ? 'No guest found with this phone number' : undefined,
     });
-  }
+  })
 );
 
 // ─── Update Guest ─────────────────────────────────────────────────────────────
@@ -303,7 +304,7 @@ router.get(
 router.patch(
   '/:id',
   authenticate,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { id } = req.params;
     const propertyId = req.user!.propertyId;
 
@@ -337,16 +338,19 @@ router.patch(
     }
 
     res.json({ success: true, data: guest });
-  }
+  })
 );
 
 // ─── Recalculate Guest Risk Score ─────────────────────────────────────────────
 
 export async function refreshGuestScore(guestId: string): Promise<void> {
+  // Supabase truncates at db-max-rows (1000 default). A guest with more than
+  // that would otherwise get a score computed over an arbitrary subset.
+  const SCORE_LIMIT = 1000;
   const reviews = await db.select<{ overallRating: number }>(
     'Review',
     { guestId, status: ReviewStatus.PUBLISHED },
-    { select: 'overallRating' }
+    { select: 'overallRating', order: 'createdAt.desc', limit: SCORE_LIMIT }
   );
 
   const now = new Date().toISOString();
@@ -362,10 +366,14 @@ export async function refreshGuestScore(guestId: string): Promise<void> {
   }
 
   const average = reviews.reduce((sum, r) => sum + r.overallRating, 0) / reviews.length;
-  const riskLevel = calculateRiskLevel(average);
+  // Derive the band from the SAME rounded figure that gets stored and shown.
+  // Using the raw average here meant a guest displaying "4.0" could be banded
+  // AVERAGE while another displaying "4.0" was banded GOOD.
+  const rounded = Math.round(average * 10) / 10;
+  const riskLevel = calculateRiskLevel(rounded);
 
   await db.update('Guest', { id: guestId }, {
-    averageRating: Math.round(average * 10) / 10,
+    averageRating: rounded,
     totalReviews: reviews.length,
     riskLevel,
     updatedAt: now,

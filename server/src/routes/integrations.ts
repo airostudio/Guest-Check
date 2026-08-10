@@ -7,6 +7,7 @@ import { AuthRequest } from '../types';
 import logger from '../utils/logger';
 import { db } from '../lib/supabase';
 import { normalizePhone } from '../utils/phone';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
@@ -52,7 +53,7 @@ interface BookingRow {
 
 // ─── API Key Management ───────────────────────────────────────────────────────
 
-router.get('/api-keys', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/api-keys', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const keys = await db.select<ApiKeyRow>(
     'ApiKey',
     { propertyId: req.user!.propertyId! },
@@ -62,13 +63,13 @@ router.get('/api-keys', authenticate, async (req: AuthRequest, res: Response): P
   const masked = keys.map((k) => ({ ...k, key: `gc_...${k.key.slice(-8)}` }));
 
   res.json({ success: true, data: masked });
-});
+}));
 
 router.post(
   '/api-keys',
   authenticate,
   requirePropertyAdmin,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { name, permissions, expiresInDays } = req.body;
     const propertyId = req.user!.propertyId!;
 
@@ -93,38 +94,38 @@ router.post(
       data: apiKey,
       message: 'Save this API key securely — it will only be shown once.',
     });
-  }
+  })
 );
 
 router.delete(
   '/api-keys/:id',
   authenticate,
   requirePropertyAdmin,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     await db.update('ApiKey',
       { id: req.params.id, propertyId: req.user!.propertyId! },
       { isActive: false }
     );
     res.json({ success: true, message: 'API key revoked' });
-  }
+  })
 );
 
 // ─── Platform Integrations ────────────────────────────────────────────────────
 
-router.get('/platforms', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/platforms', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const integrations = await db.select<IntegrationRow>(
     'Integration',
     { propertyId: req.user!.propertyId! },
     { select: 'id,platform,isActive,lastSyncAt,externalId,createdAt' }
   );
   res.json({ success: true, data: integrations });
-});
+}));
 
 router.post(
   '/platforms/:platform',
   authenticate,
   requirePropertyAdmin,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { platform } = req.params;
     const { accessToken, externalId } = req.body;
     const propertyId = req.user!.propertyId!;
@@ -166,14 +167,14 @@ router.post(
         webhookSecret,
       },
     });
-  }
+  })
 );
 
 // ─── Booking.com Webhook ──────────────────────────────────────────────────────
 
 router.post(
   '/webhooks/booking-com',
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const signature = req.headers['x-booking-signature'] as string;
     logger.info('Booking.com webhook received', { type: req.body?.type });
 
@@ -217,7 +218,7 @@ router.post(
       logger.error('Booking.com webhook error', err);
       res.status(500).json({ error: 'Webhook processing failed' });
     }
-  }
+  })
 );
 
 async function findOrCreateGuest(input: {
@@ -323,7 +324,7 @@ function mapBookingComStatus(status: string): BookingStatus {
 
 router.post(
   '/webhooks/airbnb',
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const signature = req.headers['x-airbnb-signature'] as string;
     logger.info('Airbnb webhook received', { type: req.body?.type });
 
@@ -366,7 +367,7 @@ router.post(
       logger.error('Airbnb webhook error', err);
       res.status(500).json({ error: 'Webhook processing failed' });
     }
-  }
+  })
 );
 
 async function processAirbnbReservation(data: Record<string, unknown>) {
@@ -408,7 +409,7 @@ async function processAirbnbReservation(data: Record<string, unknown>) {
 
 router.post(
   '/bookings/external',
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const apiKey = req.headers['x-api-key'] as string;
     if (!apiKey) {
       res.status(401).json({ success: false, message: 'API key required' });
@@ -479,7 +480,7 @@ router.post(
     });
 
     res.status(201).json({ success: true, data: { guestId: guest.id, bookingId: booking.id } });
-  }
+  })
 );
 
 export default router;

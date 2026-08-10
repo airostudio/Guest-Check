@@ -6,6 +6,7 @@ import { stripeService } from '../services/stripe.service';
 import config from '../config/config';
 import logger from '../utils/logger';
 import { db } from '../lib/supabase';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
@@ -92,7 +93,7 @@ router.post(
   '/checkout',
   authenticate,
   requirePropertyAdmin,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { tier } = req.body;
     const propertyId = req.user!.propertyId;
 
@@ -136,7 +137,7 @@ router.post(
     );
 
     res.json({ success: true, data: { url: session.url } });
-  }
+  })
 );
 
 // ─── Customer Portal ──────────────────────────────────────────────────────────
@@ -145,7 +146,7 @@ router.post(
   '/portal',
   authenticate,
   requirePropertyAdmin,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const propertyId = req.user!.propertyId;
     const property = await db.selectOne<PropertyRow>('Property', { id: propertyId! });
 
@@ -160,14 +161,14 @@ router.post(
     );
 
     res.json({ success: true, data: { url: session.url } });
-  }
+  })
 );
 
 // ─── Stripe Webhook ───────────────────────────────────────────────────────────
 
 router.post(
   '/webhook',
-  async (req: Request, res: Response): Promise<void> => {
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const signature = req.headers['stripe-signature'] as string;
 
     let event;
@@ -248,7 +249,7 @@ router.post(
     }
 
     res.json({ received: true });
-  }
+  })
 );
 
 // ─── Get Current Subscription ─────────────────────────────────────────────────
@@ -256,7 +257,7 @@ router.post(
 router.get(
   '/current',
   authenticate,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const propertyId = req.user!.propertyId;
     if (!propertyId) {
       res.json({ success: true, data: null });
@@ -279,7 +280,7 @@ router.get(
         isActive: ['ACTIVE', 'TRIALING'].includes(property?.subscriptionStatus || ''),
       },
     });
-  }
+  })
 );
 
 export default router;

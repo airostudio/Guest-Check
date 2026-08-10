@@ -7,6 +7,7 @@ import { AuthRequest } from '../types';
 import { db, Filter } from '../lib/supabase';
 import { parsePagination, totalPages } from '../utils/pagination';
 import { emailService } from '../services/email.service';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
@@ -76,7 +77,7 @@ router.post(
       return true;
     }),
   ],
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       res.status(400).json({ success: false, errors: errors.array() });
@@ -133,12 +134,12 @@ router.post(
     }
 
     res.status(201).json({ success: true, data: { ...booking, guest } });
-  }
+  })
 );
 
 // ─── List Bookings ───────────────────────────────────────────────────────────
 
-router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const propertyId = req.user!.propertyId;
   if (!propertyId) {
     res.status(400).json({ success: false, message: 'No property associated' });
@@ -150,16 +151,22 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<v
   const upcoming = req.query.upcoming === 'true';
 
   const filters: Record<string, Filter> = { propertyId };
-  if (status && Object.values(BookingStatus).includes(status)) filters.status = status;
   if (upcoming) {
     filters.checkIn = { gte: new Date() };
+  }
+  // An explicit status must win. Previously `upcoming` unconditionally forced
+  // CONFIRMED, so selecting "Cancelled" + "Upcoming only" showed confirmed
+  // bookings while the dropdown still read "Cancelled".
+  if (status && Object.values(BookingStatus).includes(status)) {
+    filters.status = status;
+  } else if (upcoming) {
     filters.status = BookingStatus.CONFIRMED;
   }
 
   const { data: bookings, total } = await db.selectAndCount<BookingRow>(
     'Booking',
     filters,
-    { order: 'checkIn.desc', limit, offset: (page - 1) * limit }
+    { order: 'checkIn.desc', limit, offset }
   );
 
   const withGuests = await attachGuests(bookings, 'id,firstName,lastName,nationality,averageRating,riskLevel,profileImage');
@@ -183,21 +190,22 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<v
     data: enriched,
     pagination: { page, limit, total, totalPages: totalPages(total, limit) },
   });
-});
+}));
 
 // ─── Upcoming Arrivals with Risk Alerts ──────────────────────────────────────
 
 router.get(
   '/upcoming/arrivals',
   authenticate,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const propertyId = req.user!.propertyId;
     if (!propertyId) {
       res.status(400).json({ success: false, message: 'No property associated' });
       return;
     }
 
-    const days = parseInt(req.query.days as string || '7', 10);
+    const parsedDays = parseInt(req.query.days as string || '7', 10);
+    const days = Number.isFinite(parsedDays) ? Math.min(Math.max(parsedDays, 1), 90) : 7;
     const until = new Date();
     until.setDate(until.getDate() + days);
 
@@ -209,32 +217,40 @@ router.get(
         status: BookingStatus.CONFIRMED,
         checkIn: { gte: now, lte: until.toISOString() },
       },
-      { order: 'checkIn.asc' }
+      { order: 'checkIn.asc', limit: 200 }
     );
 
     const withGuests = await attachGuests(arrivals, 'id,firstName,lastName,nationality,averageRating,totalReviews,riskLevel,profileImage');
 
+    // Shape must match what the Dashboard renders — { type, title, message },
+    // the same contract phone.ts returns. Emitting { level, message } made the
+    // badge render as a bare "! " with no text and no colour, while the
+    // "High-Risk Alerts" counter still incremented.
     const withAlerts = withGuests.map((booking) => ({
       ...booking,
       alert:
-        booking.guest && (booking.guest.riskLevel === 'HIGH_RISK' || booking.guest.riskLevel === 'POOR')
+        booking.guest && booking.guest.riskLevel === RiskLevel.HIGH_RISK
           ? {
-              level: booking.guest.riskLevel,
-              message:
-                booking.guest.riskLevel === 'HIGH_RISK'
-                  ? 'HIGH RISK: This guest has a very poor review history'
-                  : 'CAUTION: This guest has a below-average review history',
+              type: 'danger' as const,
+              title: 'HIGH RISK GUEST',
+              message: 'This guest has a very poor review history across the network.',
+            }
+          : booking.guest && booking.guest.riskLevel === RiskLevel.POOR
+          ? {
+              type: 'warning' as const,
+              title: 'Below Average Guest',
+              message: 'This guest has received below-average reviews from other properties.',
             }
           : null,
     }));
 
     res.json({ success: true, data: withAlerts });
-  }
+  })
 );
 
 // ─── Get Single Booking ──────────────────────────────────────────────────────
 
-router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const booking = await db.selectOne<BookingRow>('Booking', { id: req.params.id });
 
   if (!booking) {
@@ -264,14 +280,14 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promis
   }));
 
   res.json({ success: true, data: { ...booking, guest, reviews: reviewsWithUsers } });
-});
+}));
 
 // ─── Update Booking Status ───────────────────────────────────────────────────
 
 router.patch(
   '/:id/status',
   authenticate,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { status } = req.body;
 
     if (!status || !Object.values(BookingStatus).includes(status as BookingStatus)) {
@@ -297,7 +313,7 @@ router.patch(
     });
 
     res.json({ success: true, data: updated });
-  }
+  })
 );
 
 export default router;

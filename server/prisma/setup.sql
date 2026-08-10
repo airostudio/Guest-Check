@@ -358,6 +358,27 @@ SELECT
   CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
 WHERE NOT EXISTS (SELECT 1 FROM "User" WHERE email = 'reception@granddemohotel.com');
 
+-- ── Data-integrity constraints ────────────────────────────────────────────────
+-- Without these, duplicate reviews inflate or deflate a guest's risk score and
+-- concurrent webhooks create split guest records whose review history diverges.
+
+-- One review per reviewer per booking.
+CREATE UNIQUE INDEX IF NOT EXISTS "Review_bookingId_reviewerId_key"
+  ON "Review"("bookingId","reviewerId")
+  WHERE "bookingId" IS NOT NULL;
+
+-- One review per property per guest when there is no booking to tie it to.
+CREATE UNIQUE INDEX IF NOT EXISTS "Review_propertyId_guestId_nobooking_key"
+  ON "Review"("propertyId","guestId")
+  WHERE "bookingId" IS NULL;
+
+-- Guest identity: prevent split records from concurrent find-or-create.
+CREATE UNIQUE INDEX IF NOT EXISTS "Guest_email_key"
+  ON "Guest"(lower("email")) WHERE "email" IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS "Guest_phoneNormalized_key"
+  ON "Guest"("phoneNormalized")
+  WHERE "phoneNormalized" IS NOT NULL AND "phoneNormalized" <> '';
+
 -- ── Verify the seed worked ─────────────────────────────────────────────────────
 SELECT email, role, "emailVerified", "isActive",
        left("password", 7) AS hash_prefix  -- should show '$2a$12' for all rows

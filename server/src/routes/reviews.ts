@@ -8,6 +8,7 @@ import { refreshGuestScore } from './guests';
 import { db } from '../lib/supabase';
 import { parsePagination, totalPages } from '../utils/pagination';
 import config from '../config/config';
+import { asyncHandler } from '../utils/asyncHandler';
 
 function planLimits(tier: SubscriptionTier | undefined) {
   switch (tier) {
@@ -92,7 +93,7 @@ router.post(
     body('stayMonth').optional().isInt({ min: 1, max: 12 }),
     body('stayYear').optional().isInt({ min: 2000, max: 2100 }),
   ],
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       res.status(400).json({ success: false, errors: errors.array() });
@@ -113,12 +114,14 @@ router.post(
 
     const limits = planLimits(req.user!.subscriptionTier);
     if (limits.reviewsPerMonth !== -1) {
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      startOfMonth.setHours(0, 0, 0, 0);
+      // Anchor to UTC so the boundary is identical in dev and on Vercel.
+      const nowDate = new Date();
+      const startOfMonth = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), 1));
+      // Moderated-away reviews should not burn quota.
       const monthCount = await db.count('Review', {
         propertyId,
         createdAt: { gte: startOfMonth.toISOString() },
+        status: { neq: ReviewStatus.REMOVED },
       });
       if (monthCount >= limits.reviewsPerMonth) {
         res.status(429).json({
@@ -135,10 +138,24 @@ router.post(
       return;
     }
 
+    // Duplicate guard. Backed by unique indexes in setup.sql — this check is
+    // the friendly path; the constraint is what actually prevents a race.
     if (bookingId) {
       const existing = await db.selectOne<ReviewRow>('Review', { bookingId, reviewerId: req.user!.id });
       if (existing) {
         res.status(409).json({ success: false, message: 'You have already reviewed this booking' });
+        return;
+      }
+    } else {
+      // With no booking to scope it, one review per property per guest —
+      // otherwise a reviewer could post unlimited reviews of the same guest,
+      // each one counted by refreshGuestScore.
+      const existing = await db.selectOne<ReviewRow>('Review', { propertyId, guestId, bookingId: null });
+      if (existing) {
+        res.status(409).json({
+          success: false,
+          message: 'Your property has already reviewed this guest. Edit the existing review instead.',
+        });
         return;
       }
     }
@@ -178,12 +195,12 @@ router.post(
     refreshGuestScore(guestId).catch(console.error);
 
     res.status(201).json({ success: true, data: { ...review, guest, property } });
-  }
+  })
 );
 
 // ─── Get Review ───────────────────────────────────────────────────────────────
 
-router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const review = await db.selectOne<ReviewRow>('Review', { id: req.params.id });
 
   if (!review) {
@@ -209,14 +226,14 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promis
   };
 
   res.json({ success: true, data: sanitized });
-});
+}));
 
 // ─── List Reviews by Property ────────────────────────────────────────────────
 
 router.get(
   '/property/mine',
   authenticate,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const propertyId = req.user!.propertyId;
     if (!propertyId) {
       res.status(400).json({ success: false, message: 'No property associated' });
@@ -257,7 +274,7 @@ router.get(
       data: enriched,
       pagination: { page, limit, total, totalPages: totalPages(total, limit) },
     });
-  }
+  })
 );
 
 // ─── Update Review ────────────────────────────────────────────────────────────
@@ -265,7 +282,7 @@ router.get(
 router.patch(
   '/:id',
   authenticate,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const review = await db.selectOne<ReviewRow>('Review', { id: req.params.id });
 
     if (!review) {
@@ -310,7 +327,7 @@ router.patch(
     refreshGuestScore(review.guestId).catch(console.error);
 
     res.json({ success: true, data: updated });
-  }
+  })
 );
 
 // ─── Flag Review ───────────────────────────────────────────────────────────────
@@ -318,7 +335,7 @@ router.patch(
 router.post(
   '/:id/flag',
   authenticate,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { reason } = req.body;
 
     const review = await db.selectOne<ReviewRow>('Review', { id: req.params.id });
@@ -339,7 +356,7 @@ router.post(
     });
 
     res.json({ success: true, message: 'Review flagged for moderation' });
-  }
+  })
 );
 
 // ─── Property review stats ────────────────────────────────────────────────────
@@ -347,18 +364,28 @@ router.post(
 router.get(
   '/stats/mine',
   authenticate,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const propertyId = req.user!.propertyId;
     if (!propertyId) {
       res.status(400).json({ success: false, message: 'No property associated' });
       return;
     }
 
+    // Supabase caps responses at db-max-rows (1000 by default). Ask for one
+    // more than the cap so we can tell the client the figures are partial
+    // rather than silently reporting averages over a truncated set.
+    const STATS_LIMIT = 1000;
     const reviews = await db.select<ReviewRow>(
       'Review',
       { propertyId, status: ReviewStatus.PUBLISHED },
-      { select: 'id,overallRating,cleanliness,communication,ruleAdherence,publicComment,createdAt,guestId' }
+      {
+        select: 'id,overallRating,cleanliness,communication,ruleAdherence,publicComment,createdAt,guestId',
+        order: 'createdAt.desc',
+        limit: STATS_LIMIT + 1,
+      }
     );
+    const truncated = reviews.length > STATS_LIMIT;
+    if (truncated) reviews.length = STATS_LIMIT;
 
     const total = reviews.length;
     const avg = (key: keyof ReviewRow) => {
@@ -388,6 +415,7 @@ router.get(
       success: true,
       data: {
         totalReviews: total,
+        truncated,
         averages: {
           overallRating: avg('overallRating'),
           cleanliness: avg('cleanliness'),
@@ -404,7 +432,7 @@ router.get(
         })),
       },
     });
-  }
+  })
 );
 
 export default router;

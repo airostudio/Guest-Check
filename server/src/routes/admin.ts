@@ -6,6 +6,7 @@ import { emailService } from '../services/email.service';
 import logger from '../utils/logger';
 import { db } from '../lib/supabase';
 import { parsePagination, totalPages } from '../utils/pagination';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
@@ -60,7 +61,7 @@ router.get(
   '/properties/pending',
   authenticate,
   requireSuperAdmin,
-  async (_req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (_req: AuthRequest, res: Response): Promise<void> => {
     const properties = await db.select<PropertyRow>(
       'Property',
       { status: PropertyStatus.PENDING_VERIFICATION },
@@ -69,7 +70,7 @@ router.get(
 
     const data = await attachAdminUsers(properties);
     res.json({ success: true, data });
-  }
+  })
 );
 
 // ─── All Properties ────────────────────────────────────────────────────────────
@@ -78,7 +79,7 @@ router.get(
   '/properties',
   authenticate,
   requireSuperAdmin,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { page, limit, offset } = parsePagination(req.query as Record<string, unknown>, 20, 100);
     const status = req.query.status as PropertyStatus | undefined;
 
@@ -97,7 +98,7 @@ router.get(
       data: enriched,
       pagination: { page, limit, total, totalPages: totalPages(total, limit) },
     });
-  }
+  })
 );
 
 // ─── Approve Property ─────────────────────────────────────────────────────────
@@ -106,7 +107,7 @@ router.post(
   '/properties/:id/approve',
   authenticate,
   requireSuperAdmin,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const property = await db.updateOne<PropertyRow>(
       'Property',
       { id: req.params.id },
@@ -150,7 +151,7 @@ router.post(
     logger.info(`Property approved: ${property.name} (${property.id}) by ${req.user!.email}`);
 
     res.json({ success: true, data: property, message: 'Property approved and owner notified' });
-  }
+  })
 );
 
 // ─── Reject Property ─────────────────────────────────────────────────────────
@@ -159,7 +160,7 @@ router.post(
   '/properties/:id/reject',
   authenticate,
   requireSuperAdmin,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { reason } = req.body;
 
     const property = await db.updateOne<PropertyRow>(
@@ -191,7 +192,7 @@ router.post(
     }
 
     res.json({ success: true, message: 'Property rejected and owner notified' });
-  }
+  })
 );
 
 // ─── Suspend Property ──────────────────────────────────────────────────────────
@@ -200,13 +201,13 @@ router.post(
   '/properties/:id/suspend',
   authenticate,
   requireSuperAdmin,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     await db.update('Property', { id: req.params.id }, {
       status: PropertyStatus.SUSPENDED,
       updatedAt: new Date().toISOString(),
     });
     res.json({ success: true, message: 'Property suspended' });
-  }
+  })
 );
 
 // ─── Flagged Reviews ──────────────────────────────────────────────────────────
@@ -215,15 +216,51 @@ router.get(
   '/reviews/flagged',
   authenticate,
   requireSuperAdmin,
-  async (_req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (_req: AuthRequest, res: Response): Promise<void> => {
     const reviews = await db.select<ReviewRow>(
       'Review',
       { status: ReviewStatus.FLAGGED },
-      { order: 'updatedAt.asc' }
+      { order: 'updatedAt.asc', limit: 200 }
     );
 
-    res.json({ success: true, data: reviews });
-  }
+    // The client renders review.guest.firstName / review.reviewer.firstName /
+    // review.property.name. Returning bare rows made the Flagged Reviews tab
+    // throw and unmount the entire Admin Dashboard as soon as one review was
+    // flagged — which is exactly when moderation is needed.
+    const guestIds = Array.from(new Set(reviews.map((r) => r.guestId)));
+    const reviewerIds = Array.from(new Set(reviews.map((r) => r.reviewerId)));
+    const propertyIds = Array.from(new Set(reviews.map((r) => r.propertyId)));
+
+    const [guests, reviewers, properties] = await Promise.all([
+      guestIds.length
+        ? db.select<{ id: string; firstName: string; lastName: string }>(
+            'Guest', { id: { in: guestIds } }, { select: 'id,firstName,lastName' })
+        : Promise.resolve([]),
+      reviewerIds.length
+        ? db.select<{ id: string; firstName: string; lastName: string; email: string }>(
+            'User', { id: { in: reviewerIds } }, { select: 'id,firstName,lastName,email' })
+        : Promise.resolve([]),
+      propertyIds.length
+        ? db.select<{ id: string; name: string }>(
+            'Property', { id: { in: propertyIds } }, { select: 'id,name' })
+        : Promise.resolve([]),
+    ]);
+
+    const gById = new Map(guests.map((g) => [g.id, g]));
+    const uById = new Map(reviewers.map((u) => [u.id, u]));
+    const pById = new Map(properties.map((p) => [p.id, p]));
+
+    const UNKNOWN = { firstName: 'Unknown', lastName: '' };
+
+    const enriched = reviews.map((r) => ({
+      ...r,
+      guest: gById.get(r.guestId) ?? { id: r.guestId, ...UNKNOWN },
+      reviewer: uById.get(r.reviewerId) ?? { id: r.reviewerId, ...UNKNOWN, email: '' },
+      property: pById.get(r.propertyId) ?? { id: r.propertyId, name: 'Unknown property' },
+    }));
+
+    res.json({ success: true, data: enriched });
+  })
 );
 
 // ─── Moderate Review ──────────────────────────────────────────────────────────
@@ -232,7 +269,7 @@ router.post(
   '/reviews/:id/moderate',
   authenticate,
   requireSuperAdmin,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { action } = req.body;
 
     const newStatus =
@@ -260,7 +297,7 @@ router.post(
     }
 
     res.json({ success: true, message: `Review ${action === 'approve' ? 'approved' : 'removed'}` });
-  }
+  })
 );
 
 // ─── Platform Stats ────────────────────────────────────────────────────────────
@@ -269,7 +306,7 @@ router.get(
   '/stats',
   authenticate,
   requireSuperAdmin,
-  async (_req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (_req: AuthRequest, res: Response): Promise<void> => {
     const [
       totalProperties,
       pendingProperties,
@@ -297,7 +334,7 @@ router.get(
         highRiskGuests,
       },
     });
-  }
+  })
 );
 
 export default router;

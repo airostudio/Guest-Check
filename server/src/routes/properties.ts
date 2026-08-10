@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { authenticate, requirePropertyAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { db } from '../lib/supabase';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
@@ -42,7 +43,7 @@ interface UserRow {
 
 // ─── Get My Property ──────────────────────────────────────────────────────────
 
-router.get('/mine', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/mine', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const propertyId = req.user!.propertyId;
   if (!propertyId) {
     res.status(404).json({ success: false, message: 'No property associated with your account' });
@@ -74,7 +75,7 @@ router.get('/mine', authenticate, async (req: AuthRequest, res: Response): Promi
       _count: { reviews: reviewCount, bookings: bookingCount, apiKeys: apiKeyCount },
     },
   });
-});
+}));
 
 // ─── Update Property ──────────────────────────────────────────────────────────
 
@@ -82,7 +83,7 @@ router.patch(
   '/mine',
   authenticate,
   requirePropertyAdmin,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const propertyId = req.user!.propertyId!;
     const {
       name, phone, website, address, city, country, postcode,
@@ -104,7 +105,7 @@ router.patch(
     const updated = await db.updateOne<PropertyRow>('Property', { id: propertyId }, patch);
 
     res.json({ success: true, data: updated });
-  }
+  })
 );
 
 // ─── Team Management ──────────────────────────────────────────────────────────
@@ -119,7 +120,7 @@ router.post(
     body('lastName').trim().isLength({ min: 2 }),
     body('role').isIn(['PROPERTY_MANAGER', 'RECEPTIONIST']),
   ],
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       res.status(400).json({ success: false, errors: errors.array() });
@@ -165,14 +166,14 @@ router.post(
       },
       message: 'Team member added. Share the temporary password with them securely.',
     });
-  }
+  })
 );
 
 router.delete(
   '/mine/team/:userId',
   authenticate,
   requirePropertyAdmin,
-  async (req: AuthRequest, res: Response): Promise<void> => {
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { userId } = req.params;
     const propertyId = req.user!.propertyId!;
 
@@ -187,7 +188,7 @@ router.delete(
     });
 
     res.json({ success: true, message: 'Team member removed' });
-  }
+  })
 );
 
 export default router;
