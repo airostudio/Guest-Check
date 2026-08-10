@@ -54,14 +54,16 @@ const config = {
     phoneNumber: process.env.TWILIO_PHONE_NUMBER || '',
   },
 
-  smtp: {
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true',
-    user: process.env.SMTP_USER || '',
-    pass: process.env.SMTP_PASS || '',
-    fromEmail: process.env.FROM_EMAIL || 'noreply@guestcheck.io',
-    fromName: process.env.FROM_NAME || 'GuestCheck',
+  // Email is delivered through Resend's HTTPS API — see services/email.service.ts.
+  // SMTP is deliberately not used: outbound SMTP from Vercel functions is
+  // unreliable, and the previous nodemailer setup failed silently when unset.
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || '',
+    // The From domain must be verified in the Resend account.
+    fromEmail: process.env.FROM_EMAIL || 'waitlist@guestcheck.site',
+    fromName: process.env.FROM_NAME || 'Guest Check',
+    // Where replies go — the From address is usually unmonitored.
+    replyTo: process.env.REPLY_TO_EMAIL || '',
   },
 
   admin: {

@@ -387,10 +387,11 @@ router.get(
     res.json({
       success: true,
       data: {
+        provider: 'resend',
         configured: isEmailConfigured(),
         transport,
         notifyAddress: config.waitlistNotifyEmail,
-        fromAddress: config.smtp.fromEmail,
+        fromAddress: config.resend.fromEmail,
         waitlistSignupsAwaitingNotification: pendingNotification,
       },
     });

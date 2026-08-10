@@ -8,6 +8,18 @@ import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
+/** Promise.allSettled semantics for a single promise. */
+async function settle<T>(p: Promise<T>): Promise<
+  { status: 'fulfilled' } | { status: 'rejected'; reason: Error }
+> {
+  try {
+    await p;
+    return { status: 'fulfilled' };
+  } catch (err) {
+    return { status: 'rejected', reason: err as Error };
+  }
+}
+
 interface WaitlistRow {
   id: string;
   email: string;
@@ -69,25 +81,28 @@ router.post(
       return;
     }
 
-    // Await both sends so they are not dropped when the serverless instance
-    // freezes on response. A send failure must not fail the request — the
-    // signup is already saved — so it is logged and reconciled via `notified`.
-    const [notifyResult, confirmResult] = await Promise.allSettled([
-      emailService.sendWaitlistNotification(normalized),
-      emailService.sendWaitlistConfirmation(normalized),
-    ]);
+    // Sent sequentially, not in parallel: Resend's free tier allows 2 requests
+    // per second, and firing both at once sits exactly on that limit. The send
+    // helper retries a 429 anyway, but not racing it avoids the retry entirely.
+    //
+    // Awaited rather than fire-and-forget so they are not dropped when the
+    // serverless instance freezes on response. A send failure must not fail the
+    // request — the signup is already saved — so it is logged and reconciled
+    // via the `notified` column.
+    const notifyResult = await settle(emailService.sendWaitlistNotification(normalized));
+    const confirmResult = await settle(emailService.sendWaitlistConfirmation(normalized));
 
     if (notifyResult.status === 'fulfilled') {
       await db.update('Waitlist', { email: normalized }, { notified: true }).catch(() => {});
     } else {
       logger.error(
-        `Waitlist admin notification FAILED for ${normalized}: ${notifyResult.reason?.message ?? notifyResult.reason}`
+        `Waitlist admin notification FAILED for ${normalized}: ${notifyResult.reason.message}`
       );
     }
 
     if (confirmResult.status === 'rejected') {
       logger.warn(
-        `Waitlist confirmation to subscriber failed for ${normalized}: ${confirmResult.reason?.message ?? confirmResult.reason}`
+        `Waitlist confirmation to subscriber failed for ${normalized}: ${confirmResult.reason.message}`
       );
     }
 

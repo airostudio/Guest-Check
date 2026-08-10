@@ -1,63 +1,151 @@
-import nodemailer from 'nodemailer';
 import config from '../config/config';
 import logger from '../utils/logger';
 
-const transporter = nodemailer.createTransport({
-  host: config.smtp.host,
-  port: config.smtp.port,
-  secure: config.smtp.secure,
-  auth: { user: config.smtp.user, pass: config.smtp.pass },
-});
+// ─────────────────────────────────────────────────────────────────────────────
+// Email delivery via Resend's HTTPS API.
+//
+// Deliberately HTTP rather than SMTP: this runs on Vercel functions, where
+// outbound SMTP is unreliable/blocked and where the previous nodemailer setup
+// silently failed whenever credentials were absent. Same reasoning as the
+// Supabase HTTPS data layer in lib/supabase.ts — plain fetch, no TCP, no SDK.
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * SMTP credentials both default to '' in config, so with them unset nodemailer
- * tries to authenticate as an empty user and every send fails with an opaque
- * auth error. Detect that up front and say so plainly, rather than letting
- * every email fail for a reason nobody can see.
- */
+const RESEND_ENDPOINT = 'https://api.resend.com/emails';
+
+export interface SendOptions {
+  to: string;
+  subject: string;
+  html: string;
+  replyTo?: string;
+}
+
 export function isEmailConfigured(): boolean {
-  return Boolean(config.smtp.host && config.smtp.user && config.smtp.pass);
+  return Boolean(config.resend.apiKey && config.resend.fromEmail);
 }
 
 let warnedUnconfigured = false;
 
-/** Wraps sendMail so an unconfigured mailer produces one clear, actionable error. */
-async function send(options: nodemailer.SendMailOptions): Promise<void> {
+function fromHeader(): string {
+  // Resend requires the From domain to be verified in the account.
+  return config.resend.fromName
+    ? `${config.resend.fromName} <${config.resend.fromEmail}>`
+    : config.resend.fromEmail;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Send one email through Resend.
+ *
+ * Retries on 429 and 5xx. Resend's free tier allows 2 requests/second, and the
+ * waitlist path sends two emails back to back, so a burst can legitimately trip
+ * the limit — that must not lose the message.
+ */
+async function send(options: SendOptions, attempt = 1): Promise<void> {
   if (!isEmailConfigured()) {
     if (!warnedUnconfigured) {
       warnedUnconfigured = true;
       logger.error(
-        'EMAIL NOT SENT — SMTP is not configured. Set SMTP_HOST, SMTP_USER and ' +
-        'SMTP_PASS (Gmail requires an App Password, not your account password). ' +
+        'EMAIL NOT SENT — Resend is not configured. Set RESEND_API_KEY and ' +
+        'FROM_EMAIL (the From domain must be verified in your Resend account). ' +
         'No email of any kind will be delivered until these are set.'
       );
     }
-    throw new Error(
-      'Email is not configured on this server (SMTP_USER / SMTP_PASS are not set)'
-    );
+    throw new Error('Email is not configured on this server (RESEND_API_KEY / FROM_EMAIL are not set)');
   }
 
-  const info = await transporter.sendMail(options);
-  logger.info(`Email sent to ${String(options.to)}: ${options.subject}`, {
-    messageId: info.messageId,
-    accepted: info.accepted,
-    rejected: info.rejected,
-  });
+  const MAX_ATTEMPTS = 3;
+
+  let res: Response;
+  try {
+    res = await fetch(RESEND_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.resend.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: fromHeader(),
+        to: [options.to],
+        subject: options.subject,
+        html: options.html,
+        ...(options.replyTo || config.resend.replyTo
+          ? { reply_to: options.replyTo || config.resend.replyTo }
+          : {}),
+      }),
+    });
+  } catch (err) {
+    // Network-level failure — worth one retry before giving up.
+    if (attempt < MAX_ATTEMPTS) {
+      await sleep(attempt * 500);
+      return send(options, attempt + 1);
+    }
+    throw new Error(`Resend request failed: ${(err as Error).message}`);
+  }
+
+  const text = await res.text();
+  const body = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+
+  if (res.ok) {
+    logger.info(`Email sent to ${options.to}: ${options.subject}`, { id: body.id });
+    return;
+  }
+
+  // 429 = rate limited, 5xx = transient upstream problem.
+  if ((res.status === 429 || res.status >= 500) && attempt < MAX_ATTEMPTS) {
+    const wait = res.status === 429 ? 1100 * attempt : 400 * attempt;
+    logger.warn(`Resend ${res.status} for ${options.to}; retrying in ${wait}ms (attempt ${attempt}/${MAX_ATTEMPTS})`);
+    await sleep(wait);
+    return send(options, attempt + 1);
+  }
+
+  const message = (body.message as string) || (body.name as string) || text || `HTTP ${res.status}`;
+  throw new Error(`Resend ${res.status}: ${message}`);
 }
 
 /** Connectivity check for the admin diagnostics endpoint. */
 export async function verifyEmailTransport(): Promise<{ ok: boolean; message: string }> {
   if (!isEmailConfigured()) {
     const missing = [
-      !config.smtp.host && 'SMTP_HOST',
-      !config.smtp.user && 'SMTP_USER',
-      !config.smtp.pass && 'SMTP_PASS',
+      !config.resend.apiKey && 'RESEND_API_KEY',
+      !config.resend.fromEmail && 'FROM_EMAIL',
     ].filter(Boolean);
-    return { ok: false, message: `SMTP is not configured. Missing: ${missing.join(', ')}` };
+    return { ok: false, message: `Resend is not configured. Missing: ${missing.join(', ')}` };
   }
+
   try {
-    await transporter.verify();
-    return { ok: true, message: `Connected to ${config.smtp.host}:${config.smtp.port} as ${config.smtp.user}` };
+    // Any authenticated endpoint proves the key works; /domains also lets the
+    // caller confirm the From domain is actually verified.
+    const res = await fetch('https://api.resend.com/domains', {
+      headers: { Authorization: `Bearer ${config.resend.apiKey}` },
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, message: 'RESEND_API_KEY was rejected by Resend (401/403). Check the key.' };
+    }
+    if (!res.ok) {
+      return { ok: false, message: `Resend returned HTTP ${res.status}` };
+    }
+
+    const data = (await res.json()) as { data?: { name: string; status: string }[] };
+    const domains = data.data ?? [];
+    const fromDomain = config.resend.fromEmail.split('@')[1]?.toLowerCase() ?? '';
+    const match = domains.find((d) => d.name.toLowerCase() === fromDomain);
+
+    if (!match) {
+      return {
+        ok: false,
+        message:
+          `API key is valid, but "${fromDomain}" is not a domain in this Resend account. ` +
+          `Verified domains: ${domains.map((d) => d.name).join(', ') || 'none'}. ` +
+          `Sends will be rejected until FROM_EMAIL uses a verified domain.`,
+      };
+    }
+    if (match.status !== 'verified') {
+      return { ok: false, message: `Domain "${fromDomain}" is present but its status is "${match.status}", not "verified".` };
+    }
+
+    return { ok: true, message: `Resend ready — sending as ${fromHeader()} via verified domain ${fromDomain}` };
   } catch (err) {
     return { ok: false, message: (err as Error).message };
   }
@@ -98,7 +186,6 @@ export const emailService = {
   async sendVerificationEmail(to: string, firstName: string, token: string): Promise<void> {
     const link = `${baseUrl}/verify-email/${encodeURIComponent(token)}`;
     await send({
-      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: 'Verify your GuestCheck account',
       html: `
@@ -119,7 +206,6 @@ export const emailService = {
   async sendPasswordResetEmail(to: string, firstName: string, token: string): Promise<void> {
     const link = `${baseUrl}/reset-password/${encodeURIComponent(token)}`;
     await send({
-      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: 'Reset your GuestCheck password',
       html: `
@@ -138,7 +224,6 @@ export const emailService = {
 
   async sendPropertyApprovedEmail(to: string, firstName: string, propertyName: string): Promise<void> {
     await send({
-      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: 'Your GuestCheck property has been approved!',
       html: `
@@ -164,7 +249,6 @@ export const emailService = {
     to: string, firstName: string, propertyName: string, reason: string
   ): Promise<void> {
     await send({
-      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: 'GuestCheck property verification update',
       html: `
@@ -184,7 +268,6 @@ export const emailService = {
   ): Promise<void> {
     const isHigh = riskLevel === 'HIGH_RISK';
     await send({
-      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: `GuestCheck ${isHigh ? '⚠️ High-Risk' : 'Caution: Below-Average'} Guest — ${propertyName.replace(/[\r\n]+/g, ' ')}`,
       html: `
@@ -218,7 +301,6 @@ export const emailService = {
       .join('');
 
     await send({
-      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: `Reminder: ${checkouts.length} guest${checkouts.length > 1 ? 's' : ''} checked out yesterday — leave a review`,
       html: `
@@ -238,7 +320,6 @@ export const emailService = {
 
   async sendWaitlistNotification(signupEmail: string): Promise<void> {
     await send({
-      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to: config.waitlistNotifyEmail,
       subject: `New GuestCheck waitlist signup: ${signupEmail.replace(/[\r\n]+/g, ' ')}`,
       html: `
@@ -255,7 +336,6 @@ export const emailService = {
   /** Confirmation to the person who joined the waitlist. */
   async sendWaitlistConfirmation(to: string): Promise<void> {
     await send({
-      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: "You're on the GuestCheck waitlist",
       html: `
@@ -307,7 +387,6 @@ export const emailService = {
     };
 
     await send({
-      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to: config.waitlistNotifyEmail,
       subject: `New GuestCheck application: ${details.propertyName} — ${details.propertyCity}, ${details.propertyCountry}`
         .replace(/[\r\n]+/g, ' '),
@@ -367,7 +446,6 @@ export const emailService = {
 
   async sendApplicationReceived(to: string, firstName: string, propertyName: string): Promise<void> {
     await send({
-      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: `Your GuestCheck application has been received — ${propertyName.replace(/[\r\n]+/g, ' ')}`,
       html: `
