@@ -11,6 +11,23 @@ import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
+/**
+ * Platform → webhook path slug. Only platforms listed here have a receiver;
+ * the URL was previously built from the raw route param (BOOKING_COM), which
+ * produced a 404 URL that customers pasted into their channel manager.
+ */
+const WEBHOOK_SLUGS: Partial<Record<BookingSource, string>> = {
+  [BookingSource.BOOKING_COM]: 'booking-com',
+  [BookingSource.AIRBNB]: 'airbnb',
+};
+
+function webhookUrlFor(platform: string): string | null {
+  const slug = WEBHOOK_SLUGS[platform as BookingSource];
+  if (!slug) return null;
+  const base = (process.env.API_BASE_URL || 'https://api.guestcheck.io').replace(/\/$/, '');
+  return `${base}/api/integrations/webhooks/${slug}`;
+}
+
 interface ApiKeyRow {
   id: string;
   propertyId: string;
@@ -127,6 +144,10 @@ router.post(
   requirePropertyAdmin,
   asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { platform } = req.params;
+    if (!Object.values(BookingSource).includes(platform as BookingSource)) {
+      res.status(400).json({ success: false, message: 'Unknown platform' });
+      return;
+    }
     const { accessToken, externalId } = req.body;
     const propertyId = req.user!.propertyId!;
     const webhookSecret = crypto.randomBytes(32).toString('hex');
@@ -159,12 +180,19 @@ router.post(
       });
     }
 
+    const webhookUrl = webhookUrlFor(platform);
+
     res.json({
       success: true,
       data: {
         ...integration,
-        webhookUrl: `${process.env.API_BASE_URL || 'https://api.guestcheck.io'}/api/integrations/webhooks/${platform}`,
-        webhookSecret,
+        webhookUrl,
+        webhookSecret: webhookUrl ? webhookSecret : null,
+        // Be explicit rather than handing over a URL that 404s.
+        webhookSupported: webhookUrl !== null,
+        message: webhookUrl
+          ? undefined
+          : 'Automatic sync for this platform is not available yet. Bookings can be pushed via the API in the meantime.',
       },
     });
   })

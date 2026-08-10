@@ -1,6 +1,7 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useLocation } from 'react-router-dom';
 import api from '../api/client';
+import { getErrorMessage } from '../api/errors';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { format } from 'date-fns';
@@ -45,7 +46,7 @@ export default function Subscription() {
     onSuccess: ({ data }) => {
       window.location.href = data.data.url;
     },
-    onError: () => toast.error('Failed to start checkout'),
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to start checkout')),
   });
 
   const portalMutation = useMutation({
@@ -53,7 +54,7 @@ export default function Subscription() {
     onSuccess: ({ data }) => {
       window.location.href = data.data.url;
     },
-    onError: () => toast.error('Failed to open billing portal'),
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to open billing portal')),
   });
 
   const currentTier = subData?.subscriptionTier?.toLowerCase();

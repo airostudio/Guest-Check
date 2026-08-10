@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import api from '../api/client';
+import { getErrorMessage } from '../api/errors';
 import StarRating from '../components/StarRating';
 import toast from 'react-hot-toast';
 import { Guest } from '../types';
@@ -24,6 +25,7 @@ export default function WriteReview() {
   const [guestSearch, setGuestSearch] = useState(searchParams.get('guestName') || '');
   const [searchResults, setSearchResults] = useState<Guest[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [guestForm, setGuestForm] = useState<GuestForm>({
     firstName: '',
@@ -65,10 +67,18 @@ export default function WriteReview() {
       return;
     }
     setIsSearching(true);
+    setSearchError('');
     const t = setTimeout(async () => {
       try {
         const { data } = await api.get(`/guests/search?q=${encodeURIComponent(guestSearch)}`);
         setSearchResults(data.data || []);
+      } catch (err) {
+        // Without this catch a failed search (e.g. a 429 from the rate limiter,
+        // easy to hit with search-as-you-type) left the list empty and the UI
+        // said "No matching guests found" — so the reviewer created a duplicate
+        // guest profile for someone who was already on file.
+        setSearchResults([]);
+        setSearchError(getErrorMessage(err, 'Could not search guests. Please try again.'));
       } finally {
         setIsSearching(false);
       }
@@ -77,13 +87,23 @@ export default function WriteReview() {
   }, [guestSearch]);
 
   const createGuestMutation = useMutation({
-    mutationFn: (data: GuestForm) => api.post('/guests', data),
+    // Blank optional fields must be omitted, not sent as ''. express-validator's
+    // optional() skips only `undefined`, so an empty string was validated and
+    // rejected — making it impossible to add a guest without both an email and
+    // a mobile number, despite only the names being marked required.
+    mutationFn: (data: GuestForm) => api.post('/guests', {
+      firstName: data.firstName.trim(),
+      lastName: data.lastName.trim(),
+      email: data.email.trim() || undefined,
+      phone: data.phone.trim() || undefined,
+      nationality: data.nationality.trim() || undefined,
+    }),
     onSuccess: ({ data }) => {
       setSelectedGuest(data.data);
       setStep('write_review');
       toast.success(data.isExisting ? 'Found existing guest record' : 'Guest profile created');
     },
-    onError: () => toast.error('Failed to create guest profile'),
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to create guest profile')),
   });
 
   const submitReview = useMutation({
@@ -175,7 +195,11 @@ export default function WriteReview() {
             </div>
           )}
 
-          {guestSearch.length >= 2 && searchResults.length === 0 && !isSearching && (
+          {searchError && (
+            <p className="text-sm text-red-600" role="alert">{searchError}</p>
+          )}
+
+          {guestSearch.length >= 2 && searchResults.length === 0 && !isSearching && !searchError && (
             <p className="text-sm text-slate-500">No matching guests found.</p>
           )}
 

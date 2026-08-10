@@ -1,14 +1,18 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../api/client';
+import { getErrorMessage } from '../api/errors';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 
+// `webhook` is the real receiver path, or null where no handler exists yet.
+// Advertising a URL for a platform without a handler meant customers pasted a
+// 404 into their channel manager and reservations silently never arrived.
 const PLATFORMS = [
-  { id: 'BOOKING_COM', name: 'Booking.com', logo: '🏨', desc: 'Sync reservations via channel manager API' },
-  { id: 'AIRBNB', name: 'Airbnb', logo: '🏠', desc: 'Connect Airbnb hosting account via OAuth' },
-  { id: 'EXPEDIA', name: 'Expedia', logo: '✈️', desc: 'Expedia Group connectivity partner API' },
-  { id: 'HOTELS_COM', name: 'Hotels.com', logo: '🌐', desc: 'Hotels.com partner API integration' },
+  { id: 'BOOKING_COM', name: 'Booking.com', logo: '🏨', desc: 'Sync reservations via channel manager API', webhook: '/api/integrations/webhooks/booking-com' },
+  { id: 'AIRBNB', name: 'Airbnb', logo: '🏠', desc: 'Connect Airbnb hosting account via OAuth', webhook: '/api/integrations/webhooks/airbnb' },
+  { id: 'EXPEDIA', name: 'Expedia', logo: '✈️', desc: 'Push bookings via the GuestCheck API', webhook: null },
+  { id: 'HOTELS_COM', name: 'Hotels.com', logo: '🌐', desc: 'Push bookings via the GuestCheck API', webhook: null },
 ];
 
 interface ApiKey {
@@ -56,7 +60,7 @@ export default function Integrations() {
       setShowNewKey(false);
       setNewKeyName('');
     },
-    onError: () => toast.error('Failed to create API key'),
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to create API key')),
   });
 
   const revokeKey = useMutation({
@@ -65,6 +69,7 @@ export default function Integrations() {
       qc.invalidateQueries({ queryKey: ['api-keys'] });
       toast.success('API key revoked');
     },
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to revoke API key')),
   });
 
   const connectMutation = useMutation({
@@ -75,12 +80,13 @@ export default function Integrations() {
       setConnectPlatform(null);
       setPlatformConfig({ accessToken: '', externalId: '' });
       toast.success('Platform connected successfully!');
-      // Show webhook info
       if (data.data.webhookUrl) {
         toast.success(`Webhook URL: ${data.data.webhookUrl}`, { duration: 8000 });
+      } else if (data.data.message) {
+        toast(data.data.message, { duration: 8000 });
       }
     },
-    onError: () => toast.error('Failed to connect platform'),
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to connect platform')),
   });
 
   const getIntegration = (platformId: string) =>
@@ -177,12 +183,18 @@ export default function Integrations() {
         <p className="text-sm text-slate-500 mb-4">
           Use these webhook URLs in your booking platform settings to automatically sync reservations:
         </p>
-        {PLATFORMS.map(({ id, name }) => (
+        {PLATFORMS.map(({ id, name, webhook }) => (
           <div key={id} className="flex items-center justify-between gap-3 py-2 border-b border-slate-100 last:border-0">
             <span className="text-sm text-slate-600 font-medium">{name}</span>
-            <code className="text-xs bg-slate-100 px-2 py-1 rounded font-mono text-slate-700">
-              /api/integrations/webhooks/{id.toLowerCase().replace('_', '-')}
-            </code>
+            {webhook ? (
+              <code className="text-xs bg-slate-100 px-2 py-1 rounded font-mono text-slate-700">
+                {webhook}
+              </code>
+            ) : (
+              <span className="text-xs text-slate-400 italic">
+                Direct webhook coming soon — use the API
+              </span>
+            )}
           </div>
         ))}
       </section>

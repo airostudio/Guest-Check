@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/client';
+import { getErrorMessage } from '../api/errors';
 import toast from 'react-hot-toast';
 import { Mail } from 'lucide-react';
 
@@ -15,8 +16,8 @@ export default function ForgotPassword() {
     try {
       await api.post('/auth/forgot-password', { email });
       setSent(true);
-    } catch {
-      toast.error('Something went wrong. Please try again.');
+    } catch (err) {
+      toast.error(getErrorMessage(err));
     } finally {
       setLoading(false);
     }

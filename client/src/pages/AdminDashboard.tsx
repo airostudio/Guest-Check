@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../api/client';
+import { getErrorMessage } from '../api/errors';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 
@@ -29,9 +30,18 @@ export default function AdminDashboard() {
     enabled: tab === 'flagged',
   });
 
+  // Every mutation needs an onError: React Query v5 swallows the rejection, so
+  // without one a failed approval produced no toast, no error and no UI change —
+  // indistinguishable from not having clicked. Approval activates every user on
+  // the property, so a silent failure locks the customer out.
   const approveMutation = useMutation({
     mutationFn: (id: string) => api.post(`/admin/properties/${id}/approve`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pending-properties'] }); toast.success('Property approved'); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-properties'] });
+      qc.invalidateQueries({ queryKey: ['admin-stats'] });
+      toast.success('Property approved');
+    },
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to approve property')),
   });
 
   const rejectMutation = useMutation({
@@ -39,16 +49,23 @@ export default function AdminDashboard() {
       api.post(`/admin/properties/${id}/reject`, { reason }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pending-properties'] });
+      qc.invalidateQueries({ queryKey: ['admin-stats'] });
       setRejectingId(null);
       setRejectReason('');
       toast.success('Property rejected');
     },
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to reject property')),
   });
 
   const moderateMutation = useMutation({
     mutationFn: ({ id, action }: { id: string; action: string }) =>
       api.post(`/admin/reviews/${id}/moderate`, { action }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['flagged-reviews'] }); toast.success('Review moderated'); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['flagged-reviews'] });
+      qc.invalidateQueries({ queryKey: ['admin-stats'] });
+      toast.success('Review moderated');
+    },
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to moderate review')),
   });
 
   const TABS: { id: AdminTab; label: string; count?: number }[] = [

@@ -189,8 +189,11 @@ router.post(
   [
     body('firstName').trim().isLength({ min: 2 }),
     body('lastName').trim().isLength({ min: 2 }),
-    body('email').optional().isEmail().normalizeEmail(),
-    body('phone').optional().isMobilePhone('any'),
+    // checkFalsy — express-validator 7's bare optional() skips only `undefined`,
+    // so an empty string from a form field the user left blank was validated and
+    // rejected. Email and phone are genuinely optional here.
+    body('email').optional({ checkFalsy: true }).isEmail().normalizeEmail(),
+    body('phone').optional({ checkFalsy: true }).isMobilePhone('any'),
   ],
   asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const errors = validationResult(req);
@@ -201,12 +204,15 @@ router.post(
 
     const { firstName, lastName, email, phone, nationality, idType, idLast4 } = req.body;
 
+    // Match the columns the unique indexes are built on, so the find-or-create
+    // lookup agrees with what the database will actually enforce.
+    const normalizedPhone = normalizePhone(phone);
     let guest: GuestRow | null = null;
     if (email) {
       guest = await db.selectOne<GuestRow>('Guest', { email });
     }
-    if (!guest && phone) {
-      guest = await db.selectOne<GuestRow>('Guest', { phone });
+    if (!guest && normalizedPhone) {
+      guest = await db.selectOne<GuestRow>('Guest', { phoneNormalized: normalizedPhone });
     }
 
     if (guest) {
@@ -221,7 +227,7 @@ router.post(
       lastName,
       email: email ?? null,
       phone: phone ?? null,
-      phoneNormalized: normalizePhone(phone) || null,
+      phoneNormalized: normalizedPhone || null,
       nationality: nationality ?? null,
       idType: idType ?? null,
       idLast4: idLast4 ?? null,

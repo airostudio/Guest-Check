@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../api/client';
+import { getErrorMessage } from '../api/errors';
 import toast from 'react-hot-toast';
 
 export default function ResetPassword() {
@@ -18,8 +19,7 @@ export default function ResetPassword() {
       toast.success('Password reset! Please log in.');
       navigate('/login');
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Reset failed';
-      toast.error(msg);
+      toast.error(getErrorMessage(err, 'Reset failed'));
     } finally {
       setLoading(false);
     }
@@ -29,11 +29,11 @@ export default function ResetPassword() {
     <div className="min-h-screen bg-gradient-to-br from-brand-900 to-brand-700 flex items-center justify-center p-4">
       <div className="card p-8 max-w-md w-full">
         <h1 className="text-xl font-bold text-slate-900 mb-1">Set new password</h1>
-        <p className="text-sm text-slate-500 mb-6">Must be at least 8 chars with uppercase, number, and special character.</p>
+        <p className="text-sm text-slate-500 mb-6">At least 10 characters, including an uppercase letter and a number.</p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="label">New password</label>
-            <input type="password" className="input" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required minLength={8} />
+            <input type="password" className="input" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required minLength={10} />
           </div>
           <div>
             <label className="label">Confirm password</label>

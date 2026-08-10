@@ -8,6 +8,7 @@ import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { emailService } from '../services/email.service';
 import logger from '../utils/logger';
+import { validatePassword } from '../utils/password';
 import { db } from '../lib/supabase';
 import { asyncHandler } from '../utils/asyncHandler';
 
@@ -80,8 +81,9 @@ router.post('/register', asyncHandler(async (req: Request, res: Response): Promi
     res.status(400).json({ success: false, message: 'A valid email address is required' });
     return;
   }
-  if (!password || password.length < 10) {
-    res.status(400).json({ success: false, message: 'Password must be at least 10 characters' });
+  const passwordIssue = validatePassword(password);
+  if (passwordIssue) {
+    res.status(400).json({ success: false, message: passwordIssue });
     return;
   }
   if (!businessRegNumber || businessRegNumber.trim().length < 3) {
@@ -395,8 +397,13 @@ router.post('/forgot-password', asyncHandler(async (req: Request, res: Response)
 router.post('/reset-password', asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const { token, password } = req.body;
 
-  if (!token || !password || password.length < 8) {
-    res.status(400).json({ success: false, message: 'A valid token and password (min 8 chars) are required' });
+  if (!token) {
+    res.status(400).json({ success: false, message: 'A valid reset token is required' });
+    return;
+  }
+  const resetIssue = validatePassword(password);
+  if (resetIssue) {
+    res.status(400).json({ success: false, message: resetIssue });
     return;
   }
 
@@ -430,8 +437,13 @@ router.post('/reset-password', asyncHandler(async (req: Request, res: Response):
 router.post('/change-password', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const { currentPassword, newPassword } = req.body;
 
-  if (!currentPassword || !newPassword || newPassword.length < 8) {
-    res.status(400).json({ success: false, message: 'Current password and new password (min 8 chars) are required' });
+  if (!currentPassword) {
+    res.status(400).json({ success: false, message: 'Your current password is required' });
+    return;
+  }
+  const changeIssue = validatePassword(newPassword);
+  if (changeIssue) {
+    res.status(400).json({ success: false, message: changeIssue });
     return;
   }
 

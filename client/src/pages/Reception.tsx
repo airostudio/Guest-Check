@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/client';
+import { getErrorMessage } from '../api/errors';
 import RiskBadge from '../components/RiskBadge';
 import StarRating from '../components/StarRating';
 import { CallerCard, RiskLevel } from '../types';
@@ -11,6 +12,7 @@ export default function Reception() {
   const [searching, setSearching] = useState(false);
   const [callerCards, setCallerCards] = useState<CallerCard[] | null>(null);
   const [noMatch, setNoMatch] = useState(false);
+  const [lookupError, setLookupError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -24,6 +26,7 @@ export default function Reception() {
     setSearching(true);
     setCallerCards(null);
     setNoMatch(false);
+    setLookupError('');
 
     try {
       const { data } = await api.get(`/phone/caller/${encodeURIComponent(num.trim())}`);
@@ -32,8 +35,12 @@ export default function Reception() {
       } else {
         setNoMatch(true);
       }
-    } catch {
-      setNoMatch(true);
+    } catch (err) {
+      // A failed lookup is NOT the same as a clean guest. Reporting "Unknown
+      // caller" on a 400/429/500 tells reception the caller has no history when
+      // in fact the check never ran — the exact false negative this feature
+      // exists to prevent.
+      setLookupError(getErrorMessage(err, 'Lookup failed. Please try again.'));
     } finally {
       setSearching(false);
     }
@@ -47,6 +54,7 @@ export default function Reception() {
     setPhoneInput('');
     setCallerCards(null);
     setNoMatch(false);
+    setLookupError('');
     inputRef.current?.focus();
   };
 
@@ -110,6 +118,21 @@ export default function Reception() {
       {callerCards && callerCards.map((caller) => (
         <CallerProfileCard key={caller.id} caller={caller} />
       ))}
+
+      {lookupError && (
+        <div className="card p-8 text-center border-l-4 border-l-amber-500">
+          <div className="text-4xl mb-3">⚠️</div>
+          <h2 className="font-semibold text-slate-700 mb-1">Lookup failed</h2>
+          <p className="text-slate-500 text-sm mb-1">{lookupError}</p>
+          <p className="text-amber-700 text-sm font-medium mb-4">
+            This does <strong>not</strong> mean the caller has no history — the check did not complete.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button onClick={() => handleLookup()} className="btn-primary text-sm">Retry</button>
+            <button onClick={reset} className="btn-secondary text-sm">New lookup</button>
+          </div>
+        </div>
+      )}
 
       {noMatch && (
         <div className="card p-8 text-center">

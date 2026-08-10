@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api/client';
+import { getErrorMessage } from '../api/errors';
 import toast from 'react-hot-toast';
 import { ChevronRight, ChevronLeft, Check, ShieldCheck, AlertTriangle } from 'lucide-react';
 
@@ -188,9 +189,14 @@ export default function Register() {
     if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Enter a valid email address';
     if (!form.phone || form.phone.trim().length < 7) e.phone = 'Enter a valid phone number';
     if (!form.jobTitle) e.jobTitle = 'Please select your role';
-    if (!form.password || form.password.length < 10) e.password = 'At least 10 characters';
-    if (!/[A-Z]/.test(form.password)) e.password = 'Must include at least one uppercase letter';
-    if (!/[0-9]/.test(form.password)) e.password = 'Must include at least one number';
+    // Collect all unmet requirements rather than letting each check overwrite
+    // the previous message — an empty password used to report only
+    // "Must include at least one number."
+    const pwIssues: string[] = [];
+    if (!form.password || form.password.length < 10) pwIssues.push('at least 10 characters');
+    if (!/[A-Z]/.test(form.password)) pwIssues.push('an uppercase letter');
+    if (!/[0-9]/.test(form.password)) pwIssues.push('a number');
+    if (pwIssues.length) e.password = `Password needs ${pwIssues.join(', ')}`;
     if (form.password !== form.confirmPassword) e.confirmPassword = 'Passwords do not match';
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -253,10 +259,7 @@ export default function Register() {
       toast.success('Application submitted! We\'ll review it and be in touch within 24 hours.');
       navigate('/login');
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Registration failed. Please try again.';
-      toast.error(msg);
+      toast.error(getErrorMessage(err, 'Registration failed. Please try again.'));
     } finally {
       setLoading(false);
     }

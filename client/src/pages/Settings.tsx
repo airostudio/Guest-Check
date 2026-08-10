@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../api/client';
+import { getErrorMessage } from '../api/errors';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
@@ -47,7 +48,7 @@ export default function Settings() {
   const updateProperty = useMutation({
     mutationFn: (data: typeof propertyForm) => api.patch('/properties/mine', data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['my-property'] }); toast.success('Property updated'); refreshUser(); },
-    onError: () => toast.error('Failed to update property'),
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to update property')),
   });
 
   const changePassword = useMutation({
@@ -59,10 +60,7 @@ export default function Settings() {
       toast.success('Password changed');
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
     },
-    onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to change password';
-      toast.error(msg);
-    },
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to change password')),
   });
 
   const addMember = useMutation({
@@ -73,15 +71,16 @@ export default function Settings() {
       setNewMember({ email: '', firstName: '', lastName: '', role: 'PROPERTY_MANAGER' });
       toast.success(`Team member added. Temp password: ${data.data.temporaryPassword}`, { duration: 10000 });
     },
-    onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to add team member';
-      toast.error(msg);
-    },
+    // The team endpoint returns express-validator's { errors: [...] } shape with
+    // no `message`, so reading only .message reduced "invalid email" to a
+    // generic failure. getErrorMessage handles both shapes.
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to add team member')),
   });
 
   const removeMember = useMutation({
     mutationFn: (userId: string) => api.delete(`/properties/mine/team/${userId}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['my-property'] }); toast.success('Team member removed'); },
+    onError: (err: unknown) => toast.error(getErrorMessage(err, 'Failed to remove team member')),
   });
 
   const canManageTeam = user?.role === 'SUPER_ADMIN' || user?.role === 'PROPERTY_ADMIN';
