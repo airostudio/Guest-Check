@@ -75,22 +75,36 @@ export default function ComingSoon() {
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email) return;
     setLoading(true);
+    setError('');
     try {
-      await fetch('/api/waitlist', {
+      const res = await fetch('/api/waitlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
+
+      if (!res.ok) {
+        // Never claim success on a failure — the signup would be lost silently.
+        const body = await res.json().catch(() => ({}));
+        setError(
+          res.status === 429
+            ? 'Too many attempts. Please try again in a little while.'
+            : body?.message || 'Something went wrong. Please try again.'
+        );
+        return;
+      }
+
+      setSubmitted(true);
     } catch {
-      // show success regardless — don't block the user on email failures
+      setError('Could not reach the server. Please check your connection and try again.');
     } finally {
       setLoading(false);
-      setSubmitted(true);
     }
   }
 
@@ -170,6 +184,9 @@ export default function ComingSoon() {
                         {loading ? 'Joining…' : 'Join waitlist'}
                       </button>
                     </form>
+                  )}
+                  {error && (
+                    <p className="text-sm text-red-600 mt-3" role="alert">{error}</p>
                   )}
                   <p className="text-xs text-brand-900/40 mt-3">No spam. One email when we launch.</p>
                 </div>
@@ -413,6 +430,10 @@ export default function ComingSoon() {
                 )}
               </button>
             </form>
+          )}
+
+          {error && (
+            <p className="text-sm text-red-200 mt-4" role="alert">{error}</p>
           )}
 
           <div className="mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-sm text-cream-50/60">

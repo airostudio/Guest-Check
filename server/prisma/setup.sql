@@ -269,6 +269,19 @@ CREATE TABLE IF NOT EXISTS "Integration" (
     REFERENCES "Property"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+-- Waitlist signups from the coming-soon page. Persisted so a signup survives
+-- an SMTP failure — the notification email is a convenience, not the record.
+CREATE TABLE IF NOT EXISTS "Waitlist" (
+  "id"        TEXT NOT NULL DEFAULT gen_random_uuid()::text,
+  "email"     TEXT NOT NULL,
+  "source"    TEXT,
+  "ipAddress" TEXT,
+  "notified"  BOOLEAN NOT NULL DEFAULT false,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "Waitlist_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "Waitlist_email_key" ON "Waitlist"(lower("email"));
+
 CREATE TABLE IF NOT EXISTS "AuditLog" (
   "id"         TEXT NOT NULL DEFAULT gen_random_uuid()::text,
   "userId"     TEXT,
