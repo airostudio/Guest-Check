@@ -182,24 +182,214 @@ function safeUrl(value: unknown): string | null {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared email layout
+//
+// Email clients are not browsers: Outlook renders with Word, Gmail strips most
+// <style>, and flex/grid are unsupported. So everything below is table-based
+// with inline styles, a 600px max width, and web-safe font stacks (Fraunces and
+// Great Vibes from the site won't load, so Georgia carries the display voice).
+//
+// Palette matches the site — cream + sage green. The emails previously used the
+// pre-rebrand blue (#1d4ed8), which no longer appears anywhere in the product.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const C = {
+  ink: '#1e2b16',        // brand-900 — primary text
+  inkSoft: '#4a5a3d',    // muted body text
+  inkFaint: '#8a9580',   // captions, legal
+  sage: '#5d8142',       // brand-500 — accents
+  forest: '#385128',     // brand-700 — buttons, header
+  forestDeep: '#1e2b16', // brand-900 — header band
+  mist: '#a4bd80',       // brand-300 — on-dark accent
+  cream: '#fdfaf2',      // page background
+  creamSoft: '#f8f1de',  // panel background
+  border: '#e6dfcc',     // hairlines
+  white: '#ffffff',
+  danger: '#b3261e',
+  dangerSoft: '#fdf0ef',
+  warn: '#8a5a00',
+  warnSoft: '#fdf6e6',
+} as const;
+
+const FONT_BODY = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
+const FONT_DISPLAY = "Georgia,'Times New Roman',serif";
+
+type Tone = 'brand' | 'danger' | 'warning';
+
+const TONES: Record<Tone, { bar: string; band: string; onBand: string }> = {
+  brand:   { bar: C.sage,   band: C.forestDeep, onBand: C.mist },
+  danger:  { bar: C.danger, band: '#3a1512',    onBand: '#f7b4ae' },
+  warning: { bar: '#c98a00', band: '#3d2c05',   onBand: '#f5cd72' },
+};
+
+/** Hidden preview line shown in the inbox list beside the subject. */
+function preheader(text: string): string {
+  return `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:${C.cream};opacity:0;">${esc(text)}</div>`;
+}
+
+/** Table-based CTA — an <a> with padding collapses in Outlook. */
+export function button(label: string, url: string, tone: Tone = 'brand'): string {
+  const href = safeUrl(url) ?? '#';
+  const bg = tone === 'danger' ? C.danger : tone === 'warning' ? '#8a5a00' : C.forest;
+  return `
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:28px 0;">
+    <tr>
+      <td align="center" bgcolor="${bg}" style="border-radius:8px;">
+        <a href="${href}"
+           style="display:inline-block;padding:14px 30px;font-family:${FONT_BODY};font-size:15px;font-weight:600;color:${C.white};text-decoration:none;border-radius:8px;letter-spacing:.01em;">
+          ${esc(label)}
+        </a>
+      </td>
+    </tr>
+  </table>`;
+}
+
+/** Key/value rows for structured detail blocks. */
+export function detailRows(rows: Array<[string, string] | null>): string {
+  const cells = rows
+    .filter((r): r is [string, string] => Array.isArray(r) && Boolean(r[1]))
+    .map(
+      ([label, value]) => `
+      <tr>
+        <td style="padding:9px 0;font-family:${FONT_BODY};font-size:13px;color:${C.inkFaint};width:42%;vertical-align:top;border-bottom:1px solid ${C.border};">${esc(label)}</td>
+        <td style="padding:9px 0;font-family:${FONT_BODY};font-size:14px;color:${C.ink};vertical-align:top;border-bottom:1px solid ${C.border};">${value}</td>
+      </tr>`
+    )
+    .join('');
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 4px;">${cells}</table>`;
+}
+
+/** Callout panel for warnings and highlights. */
+export function panel(body: string, tone: Tone = 'brand'): string {
+  const bg = tone === 'danger' ? C.dangerSoft : tone === 'warning' ? C.warnSoft : C.creamSoft;
+  const edge = tone === 'danger' ? C.danger : tone === 'warning' ? '#c98a00' : C.sage;
+  const fg = tone === 'danger' ? C.danger : tone === 'warning' ? C.warn : C.ink;
+  return `
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;">
+    <tr>
+      <td style="background:${bg};border-left:3px solid ${edge};border-radius:6px;padding:16px 18px;font-family:${FONT_BODY};font-size:14px;line-height:1.6;color:${fg};">
+        ${body}
+      </td>
+    </tr>
+  </table>`;
+}
+
+/** Turn an enum value like BOUTIQUE_HOTEL into "Boutique Hotel". */
+export function humanise(value: string): string {
+  if (!value) return '';
+  return value
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ')
+    .replace(/\bAnd\b/g, '&')
+    .replace(/\bBed & Breakfast\b/, 'Bed & Breakfast');
+}
+
+export function paragraph(html: string): string {
+  return `<p style="margin:0 0 16px;font-family:${FONT_BODY};font-size:15px;line-height:1.65;color:${C.inkSoft};">${html}</p>`;
+}
+
+interface LayoutOptions {
+  preview: string;
+  eyebrow?: string;
+  heading: string;
+  tone?: Tone;
+  content: string;
+  footerNote?: string;
+}
+
+/** Wraps content in the branded shell. All callers go through this. */
+function layout({ preview, eyebrow, heading, tone = 'brand', content, footerNote }: LayoutOptions): string {
+  const t = TONES[tone];
+  return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="x-apple-disable-message-reformatting" />
+<meta name="color-scheme" content="light" />
+<title>${esc(heading)}</title>
+</head>
+<body style="margin:0;padding:0;background:${C.cream};-webkit-font-smoothing:antialiased;">
+${preheader(preview)}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${C.cream};">
+  <tr>
+    <td align="center" style="padding:32px 16px;">
+
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;">
+
+        <!-- Wordmark -->
+        <tr>
+          <td style="padding:0 4px 18px;">
+            <span style="font-family:${FONT_DISPLAY};font-size:19px;font-weight:bold;color:${C.forest};letter-spacing:-.01em;">Guest Check</span>
+          </td>
+        </tr>
+
+        <!-- Card -->
+        <tr>
+          <td style="background:${C.white};border:1px solid ${C.border};border-radius:14px;overflow:hidden;">
+
+            <!-- Accent rule -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr><td style="height:4px;background:${t.bar};font-size:0;line-height:0;">&nbsp;</td></tr>
+            </table>
+
+            <!-- Header band -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="background:${t.band};padding:30px 36px;">
+                  ${eyebrow ? `<div style="font-family:${FONT_BODY};font-size:11px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:${t.onBand};margin-bottom:9px;">${esc(eyebrow)}</div>` : ''}
+                  <h1 style="margin:0;font-family:${FONT_DISPLAY};font-size:26px;line-height:1.25;font-weight:normal;color:${C.white};">${esc(heading)}</h1>
+                </td>
+              </tr>
+            </table>
+
+            <!-- Body -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr><td style="padding:32px 36px 34px;">${content}</td></tr>
+            </table>
+
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="padding:22px 8px 8px;">
+            ${footerNote ? `<p style="margin:0 0 12px;font-family:${FONT_BODY};font-size:12px;line-height:1.6;color:${C.inkFaint};">${footerNote}</p>` : ''}
+            <p style="margin:0;font-family:${FONT_BODY};font-size:12px;line-height:1.6;color:${C.inkFaint};">
+              Guest Check · The verified guest review platform for accommodation businesses<br />
+              <span style="color:#b0b8a5;">&copy; ${new Date().getFullYear()} GuestCheck Ltd. All rights reserved.</span>
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>`;
+}
+
+
 export const emailService = {
   async sendVerificationEmail(to: string, firstName: string, token: string): Promise<void> {
     const link = `${baseUrl}/verify-email/${encodeURIComponent(token)}`;
     await send({
       to,
-      subject: 'Verify your GuestCheck account',
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <h1 style="color: #1d4ed8;">Welcome to GuestCheck, ${esc(firstName)}!</h1>
-          <p>Thank you for registering. Please verify your email address to activate your account.</p>
-          <p>Your property listing will be reviewed by our team within 24 hours after verification.</p>
-          <a href="${link}" style="display:inline-block;background:#1d4ed8;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;margin:16px 0;">
-            Verify Email Address
-          </a>
-          <p>This link expires in 24 hours.</p>
-          <p style="color:#6b7280;font-size:14px;">If you didn't create this account, you can ignore this email.</p>
-        </div>
-      `,
+      subject: 'Verify your Guest Check account',
+      html: layout({
+        preview: 'Confirm your email address to activate your Guest Check account.',
+        eyebrow: 'Welcome',
+        heading: `Welcome to Guest Check, ${esc(firstName)}`,
+        content: `
+          ${paragraph('Thanks for registering. Confirm your email address to activate your account.')}
+          ${button('Verify email address', link)}
+          ${paragraph(`This link expires in 24 hours. Once verified, our team reviews your property listing &mdash; usually within 24 hours.`)}
+        `,
+        footerNote: `If you didn't create this account, you can safely ignore this email.`,
+      }),
     });
   },
 
@@ -207,41 +397,49 @@ export const emailService = {
     const link = `${baseUrl}/reset-password/${encodeURIComponent(token)}`;
     await send({
       to,
-      subject: 'Reset your GuestCheck password',
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <h1 style="color: #1d4ed8;">Password Reset Request</h1>
-          <p>Hi ${esc(firstName)}, we received a request to reset your password.</p>
-          <a href="${link}" style="display:inline-block;background:#1d4ed8;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;margin:16px 0;">
-            Reset Password
-          </a>
-          <p>This link expires in 1 hour.</p>
-          <p style="color:#6b7280;font-size:14px;">If you didn't request this, please ignore this email.</p>
-        </div>
-      `,
+      subject: 'Reset your Guest Check password',
+      html: layout({
+        preview: 'A link to set a new password. Expires in one hour.',
+        eyebrow: 'Account security',
+        heading: 'Reset your password',
+        content: `
+          ${paragraph(`Hi ${esc(firstName)}, we received a request to reset the password on your Guest Check account.`)}
+          ${button('Choose a new password', link)}
+          ${paragraph('This link expires in <strong>one hour</strong> and can only be used once.')}
+        `,
+        footerNote: `If you didn't request this, no action is needed &mdash; your password stays as it is.`,
+      }),
     });
   },
 
   async sendPropertyApprovedEmail(to: string, firstName: string, propertyName: string): Promise<void> {
     await send({
       to,
-      subject: 'Your GuestCheck property has been approved!',
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <h1 style="color: #10b981;">Congratulations, ${esc(firstName)}!</h1>
-          <p><strong>${esc(propertyName)}</strong> has been verified and approved on GuestCheck.</p>
-          <p>You can now:</p>
-          <ul>
-            <li>Leave reviews for your guests</li>
-            <li>Look up arriving guests' review history</li>
-            <li>Set up booking system integrations</li>
-            <li>Enable caller ID guest lookup at reception</li>
-          </ul>
-          <a href="${baseUrl}/dashboard" style="display:inline-block;background:#10b981;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;margin:16px 0;">
-            Go to Dashboard
-          </a>
-        </div>
-      `,
+      subject: `${propertyName.replace(/[\r\n]+/g, ' ')} is verified and live on Guest Check`,
+      html: layout({
+        preview: `${propertyName} has been approved. Your account is now active.`,
+        eyebrow: 'Verification complete',
+        heading: 'Your property is approved',
+        content: `
+          ${paragraph(`Good news, ${esc(firstName)} &mdash; <strong style="color:${C.ink};">${esc(propertyName)}</strong> has been verified and is now live on Guest Check.`)}
+          ${paragraph('Your account is active and you can start straight away:')}
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 8px;">
+            ${[
+              ['Look up arriving guests', 'Search by name, email or phone and see verified review history from every property.'],
+              ['Leave guest reviews', 'Rate guests 0&ndash;6 across cleanliness, communication, rule adherence and property respect.'],
+              ['Connect your booking systems', 'Sync reservations automatically from Booking.com and Airbnb.'],
+              ['Turn on caller ID', 'See a guest&rsquo;s profile the moment they call reception.'],
+            ].map(([t, d]) => `
+            <tr>
+              <td style="padding:11px 0;border-bottom:1px solid ${C.border};">
+                <div style="font-family:${FONT_BODY};font-size:14px;font-weight:600;color:${C.ink};margin-bottom:3px;">${t}</div>
+                <div style="font-family:${FONT_BODY};font-size:13px;line-height:1.55;color:${C.inkFaint};">${d}</div>
+              </td>
+            </tr>`).join('')}
+          </table>
+          ${button('Go to your dashboard', `${baseUrl}/dashboard`)}
+        `,
+      }),
     });
   },
 
@@ -250,15 +448,18 @@ export const emailService = {
   ): Promise<void> {
     await send({
       to,
-      subject: 'GuestCheck property verification update',
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <h1 style="color: #ef4444;">Verification Update</h1>
-          <p>Hi ${esc(firstName)}, unfortunately we were unable to verify <strong>${esc(propertyName)}</strong>.</p>
-          <p><strong>Reason:</strong> ${esc(reason)}</p>
-          <p>If you believe this is an error, please contact our support team.</p>
-        </div>
-      `,
+      subject: 'Update on your Guest Check application',
+      html: layout({
+        preview: `We were unable to verify ${propertyName}.`,
+        eyebrow: 'Application update',
+        heading: 'We couldn’t verify your property',
+        tone: 'warning',
+        content: `
+          ${paragraph(`Hi ${esc(firstName)}, thanks for applying. Unfortunately we weren't able to verify <strong style="color:${C.ink};">${esc(propertyName)}</strong> at this time.`)}
+          ${panel(`<strong style="display:block;margin-bottom:4px;">Reason given</strong>${esc(reason)}`, 'warning')}
+          ${paragraph('If you think this was decided in error, or you can supply further documentation, just reply to this email and a member of our team will take another look.')}
+        `,
+      }),
     });
   },
 
@@ -269,21 +470,29 @@ export const emailService = {
     const isHigh = riskLevel === 'HIGH_RISK';
     await send({
       to,
-      subject: `GuestCheck ${isHigh ? '⚠️ High-Risk' : 'Caution: Below-Average'} Guest — ${propertyName.replace(/[\r\n]+/g, ' ')}`,
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background:${isHigh ? '#fef2f2;border:1px solid #fca5a5' : '#fffbeb;border:1px solid #fcd34d'};border-radius:8px;padding:16px;margin-bottom:16px;">
-            <h1 style="color:${isHigh ? '#dc2626' : '#b45309'};margin:0;">${isHigh ? '⚠️ High-Risk Guest Alert' : '⚡ Below-Average Guest Alert'}</h1>
-          </div>
-          <p>${isHigh ? 'A guest with a <strong>very poor</strong> review history' : 'A guest with a <strong>below-average</strong> review history'} has an upcoming booking at <strong>${esc(propertyName)}</strong>.</p>
-          <p><strong>Guest:</strong> ${esc(guestName)}</p>
-          <p><strong>Average Rating:</strong> ${rating > 0 ? `${rating.toFixed(1)}/6` : 'No rating yet'}</p>
-          <p>${isHigh ? 'We strongly recommend reviewing their full profile before check-in.' : 'Please review their profile and take appropriate precautions.'}</p>
-          <a href="${baseUrl}/dashboard" style="display:inline-block;background:${isHigh ? '#dc2626' : '#d97706'};color:white;padding:12px 24px;border-radius:6px;text-decoration:none;margin:16px 0;">
-            View Guest Profile
-          </a>
-        </div>
-      `,
+      subject: `${isHigh ? 'High-risk' : 'Caution'}: ${guestName.replace(/[\r\n]+/g, ' ')} has booked at ${propertyName.replace(/[\r\n]+/g, ' ')}`,
+      html: layout({
+        preview: `${guestName} has a ${isHigh ? 'very poor' : 'below-average'} review history across the network.`,
+        eyebrow: isHigh ? 'High-risk guest' : 'Caution advised',
+        heading: isHigh ? 'A high-risk guest has booked' : 'A below-average guest has booked',
+        tone: isHigh ? 'danger' : 'warning',
+        content: `
+          ${paragraph(`A guest with a <strong style="color:${C.ink};">${isHigh ? 'very poor' : 'below-average'}</strong> review history has an upcoming booking at <strong style="color:${C.ink};">${esc(propertyName)}</strong>.`)}
+          ${detailRows([
+            ['Guest', `<strong>${esc(guestName)}</strong>`],
+            ['Network rating', rating > 0 ? `${rating.toFixed(1)} / 6` : 'Not yet rated'],
+            ['Risk level', isHigh ? 'High risk' : 'Below average'],
+          ])}
+          ${panel(
+            isHigh
+              ? 'We strongly recommend reviewing this guest&rsquo;s full history before check-in, and briefing the team on arrival.'
+              : 'Worth reviewing their profile and taking sensible precautions at check-in.',
+            isHigh ? 'danger' : 'warning'
+          )}
+          ${button('View guest profile', `${baseUrl}/dashboard`, isHigh ? 'danger' : 'warning')}
+        `,
+        footerNote: `You receive these because you are an administrator of ${esc(propertyName)}.`,
+      }),
     });
   },
 
@@ -293,43 +502,57 @@ export const emailService = {
     propertyName: string,
     checkouts: Array<{ guestName: string; bookingId: string }>
   ): Promise<void> {
+    const plural = checkouts.length > 1;
     const rows = checkouts
       .map(
-        (c) =>
-          `<li style="margin-bottom:8px;"><strong>${esc(c.guestName)}</strong> — <a href="${baseUrl}/reviews/new?bookingId=${encodeURIComponent(c.bookingId)}" style="color:#476832;">Leave review →</a></li>`
+        (c) => `
+      <tr>
+        <td style="padding:12px 0;border-bottom:1px solid ${C.border};font-family:${FONT_BODY};font-size:15px;color:${C.ink};">
+          ${esc(c.guestName)}
+        </td>
+        <td align="right" style="padding:12px 0;border-bottom:1px solid ${C.border};">
+          <a href="${baseUrl}/reviews/new?bookingId=${encodeURIComponent(c.bookingId)}"
+             style="font-family:${FONT_BODY};font-size:14px;font-weight:600;color:${C.sage};text-decoration:none;">Review &rarr;</a>
+        </td>
+      </tr>`
       )
       .join('');
 
     await send({
       to,
-      subject: `Reminder: ${checkouts.length} guest${checkouts.length > 1 ? 's' : ''} checked out yesterday — leave a review`,
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <h1 style="color:#385128;">Don't forget to review your guests, ${firstName}!</h1>
-          <p>The following guest${checkouts.length > 1 ? 's' : ''} checked out from <strong>${esc(propertyName)}</strong> yesterday and ${checkouts.length > 1 ? 'haven\'t' : 'hasn\'t'} been reviewed yet:</p>
-          <ul style="padding-left:20px;line-height:1.8;">${rows}</ul>
-          <p>Your reviews help the whole GuestCheck community — and they improve your own guest intelligence over time.</p>
-          <a href="${baseUrl}/reviews/new" style="display:inline-block;background:#385128;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;margin:16px 0;">
-            Go to Reviews
-          </a>
-          <p style="color:#6b7280;font-size:13px;">You're receiving this because you manage <strong>${esc(propertyName)}</strong> on GuestCheck.</p>
-        </div>
-      `,
+      subject: `${checkouts.length} guest${plural ? 's' : ''} checked out yesterday — leave a review`,
+      html: layout({
+        preview: `${checkouts.length} recent checkout${plural ? 's are' : ' is'} waiting for your review.`,
+        eyebrow: 'Reminder',
+        heading: plural ? 'You have guests to review' : 'You have a guest to review',
+        content: `
+          ${paragraph(`Hi ${esc(firstName)} &mdash; ${plural ? 'these guests' : 'this guest'} checked out of <strong style="color:${C.ink};">${esc(propertyName)}</strong> yesterday and ${plural ? "haven't" : "hasn't"} been reviewed yet.`)}
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 4px;">${rows}</table>
+          ${paragraph('Reviews take under a minute, and they&rsquo;re what makes every other property&rsquo;s risk data &mdash; and yours &mdash; accurate.')}
+          ${button('Leave your reviews', `${baseUrl}/reviews/new`)}
+        `,
+        footerNote: `You receive these because you manage ${esc(propertyName)} on Guest Check.`,
+      }),
     });
   },
 
   async sendWaitlistNotification(signupEmail: string): Promise<void> {
     await send({
       to: config.waitlistNotifyEmail,
-      subject: `New GuestCheck waitlist signup: ${signupEmail.replace(/[\r\n]+/g, ' ')}`,
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #385128;">New waitlist signup</h2>
-          <p style="font-size: 18px;"><strong>${esc(signupEmail)}</strong> just joined the GuestCheck waitlist.</p>
-          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
-          <p style="color: #6b7280; font-size: 13px;">Sent automatically from your GuestCheck coming soon page.</p>
-        </div>
-      `,
+      subject: `New waitlist signup: ${signupEmail.replace(/[\r\n]+/g, ' ')}`,
+      html: layout({
+        preview: `${signupEmail} joined the Guest Check waitlist.`,
+        eyebrow: 'Waitlist',
+        heading: 'New waitlist signup',
+        content: `
+          ${detailRows([
+            ['Email', `<a href="mailto:${encodeURIComponent(signupEmail)}" style="color:${C.sage};text-decoration:none;">${esc(signupEmail)}</a>`],
+            ['Source', 'Coming soon page'],
+          ])}
+          ${paragraph('The full list is available in the admin area.')}
+        `,
+        footerNote: 'Sent automatically from guestcheck.site.',
+      }),
     });
   },
 
@@ -337,27 +560,18 @@ export const emailService = {
   async sendWaitlistConfirmation(to: string): Promise<void> {
     await send({
       to,
-      subject: "You're on the GuestCheck waitlist",
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background:#1e2b16;padding:20px 24px;border-radius:8px 8px 0 0;">
-            <h1 style="color:#a4bd80;margin:0;font-size:20px;">You're on the list</h1>
-          </div>
-          <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
-            <p>Thanks for your interest in GuestCheck.</p>
-            <p>
-              GuestCheck is the verified guest review platform built for accommodation
-              owners and managers — look up an arriving guest's review history from every
-              verified property before they check in.
-            </p>
-            <p>We'll email you as soon as we open for registrations. Early members get an extended free trial.</p>
-            <p style="color:#6b7280;font-size:13px;margin-top:24px;">
-              You received this because this address was entered on guestcheck.site.
-              If that wasn't you, simply ignore this email — you won't hear from us again.
-            </p>
-          </div>
-        </div>
-      `,
+      subject: "You're on the Guest Check waitlist",
+      html: layout({
+        preview: "You're on the list. We'll email you the moment we open for registrations.",
+        eyebrow: 'Launching soon',
+        heading: "You're on the list",
+        content: `
+          ${paragraph('Thanks for your interest in Guest Check.')}
+          ${paragraph('Guest Check is the verified guest review platform built for accommodation owners and managers &mdash; look up an arriving guest&rsquo;s review history from every verified property, before you hand over the key.')}
+          ${panel(`<strong style="display:block;margin-bottom:4px;color:${C.ink};">Early members get an extended free trial</strong>We&rsquo;ll email you as soon as registrations open.`)}
+        `,
+        footerNote: `You received this because this address was entered on guestcheck.site. If that wasn't you, simply ignore this email &mdash; you won't hear from us again.`,
+      }),
     });
   },
 
@@ -372,103 +586,101 @@ export const emailService = {
     listingUrlAirbnb: string; listingUrlOther: string;
     industryMemberships: string; howHeard: string;
   }): Promise<void> {
-    // Every value below originates from the UNAUTHENTICATED registration body,
+    // Every value here originates from the UNAUTHENTICATED registration body,
     // so all of it is escaped and URLs are protocol-checked before rendering.
-    const row = (label: string, value: string) =>
-      value
-        ? `<tr><td style="padding:6px 12px;font-weight:600;color:#374151;width:200px;vertical-align:top">${esc(label)}</td><td style="padding:6px 12px;color:#111827">${value}</td></tr>`
-        : '';
-
-    const linkRow = (label: string, url: string) => {
+    const link = (url: string) => {
       const href = safeUrl(url);
-      return href
-        ? row(label, `<a href="${href}" rel="noopener noreferrer">${href}</a>`)
-        : row(label, esc(url));
+      return href ? `<a href="${href}" rel="noopener noreferrer" style="color:${C.sage};">${href}</a>` : esc(url);
     };
+
+    const section = (title: string, rows: Array<[string, string] | null>) => `
+      <div style="font-family:${FONT_BODY};font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${C.sage};margin:26px 0 2px;">${esc(title)}</div>
+      ${detailRows(rows)}`;
 
     await send({
       to: config.waitlistNotifyEmail,
-      subject: `New GuestCheck application: ${details.propertyName} — ${details.propertyCity}, ${details.propertyCountry}`
-        .replace(/[\r\n]+/g, ' '),
-      html: `
-        <div style="font-family: sans-serif; max-width: 680px; margin: 0 auto;">
-          <div style="background:#1e2b16;padding:20px 24px;border-radius:8px 8px 0 0;">
-            <h1 style="color:#a4bd80;margin:0;font-size:20px;">New Property Application</h1>
-            <p style="color:#6b8f4e;margin:4px 0 0;font-size:14px;">Review and verify before activating</p>
-          </div>
+      replyTo: details.applicantEmail,
+      subject: `New application: ${details.propertyName} (${details.propertyCity}, ${details.propertyCountry})`.replace(/[\r\n]+/g, ' '),
+      html: layout({
+        preview: `${details.propertyName} in ${details.propertyCity} has applied to join. Review before activating.`,
+        eyebrow: 'Action required',
+        heading: 'New property application',
+        content: `
+          ${paragraph(`<strong style="color:${C.ink};font-size:17px;">${esc(details.propertyName)}</strong><br /><span style="color:${C.inkFaint};">${esc(details.propertyCity)}, ${esc(details.propertyCountry)}</span>`)}
 
-          <div style="border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;overflow:hidden;">
-            <div style="background:#f9fafb;padding:12px 16px;border-bottom:1px solid #e5e7eb;">
-              <p style="margin:0;font-weight:700;color:#111827;font-size:16px;">${esc(details.propertyName)}</p>
-              <p style="margin:2px 0 0;color:#6b7280;font-size:13px;">${esc(details.propertyCity)}, ${esc(details.propertyCountry)}</p>
-            </div>
+          ${section('Applicant', [
+            ['Name', esc(details.applicantName)],
+            ['Email', `<a href="mailto:${encodeURIComponent(details.applicantEmail)}" style="color:${C.sage};">${esc(details.applicantEmail)}</a>`],
+            ['Phone', esc(details.applicantPhone)],
+            ['Role', esc(details.jobTitle)],
+          ])}
 
-            <table style="width:100%;border-collapse:collapse;">
-              <tr style="background:#f0f4ea;"><td colspan="2" style="padding:8px 12px;font-weight:700;color:#385128;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Applicant</td></tr>
-              ${row('Name', esc(details.applicantName))}
-              ${row('Email', `<a href="mailto:${encodeURIComponent(details.applicantEmail)}">${esc(details.applicantEmail)}</a>`)}
-              ${row('Phone', esc(details.applicantPhone))}
-              ${row('Role', esc(details.jobTitle))}
+          ${section('Property', [
+            ['Type', esc(humanise(details.propertyType))],
+            ['Rooms / units', esc(details.numberOfRooms)],
+            ['Address', `${esc(details.propertyAddress)}, ${esc(details.propertyCity)}, ${esc(details.propertyCountry)}`],
+            ['Phone', esc(details.propertyPhone)],
+            ['Website', details.propertyWebsite ? link(details.propertyWebsite) : ''],
+          ])}
 
-              <tr style="background:#f0f4ea;"><td colspan="2" style="padding:8px 12px;font-weight:700;color:#385128;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Property</td></tr>
-              ${row('Property type', esc(details.propertyType))}
-              ${row('Number of rooms', esc(details.numberOfRooms))}
-              ${row('Address', `${esc(details.propertyAddress)}, ${esc(details.propertyCity)}, ${esc(details.propertyCountry)}`)}
-              ${row('Property phone', esc(details.propertyPhone))}
-              ${linkRow('Website', details.propertyWebsite)}
+          ${section('Business identity', [
+            ['Legal name', esc(details.legalBusinessName || details.propertyName)],
+            ['Registration no.', `<strong>${esc(details.businessRegNumber)}</strong>`],
+            ['VAT / GST', esc(details.vatNumber)],
+            ['Incorporated in', esc(details.countryOfIncorporation)],
+            ['Years operating', esc(details.yearsInOperation)],
+          ])}
 
-              <tr style="background:#f0f4ea;"><td colspan="2" style="padding:8px 12px;font-weight:700;color:#385128;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Business Identity</td></tr>
-              ${row('Legal business name', esc(details.legalBusinessName || details.propertyName))}
-              ${row('Business reg number', esc(details.businessRegNumber))}
-              ${row('VAT / GST number', esc(details.vatNumber))}
-              ${row('Country of incorporation', esc(details.countryOfIncorporation))}
-              ${row('Years in operation', esc(details.yearsInOperation))}
+          ${section('Online presence', [
+            ['Platforms', esc(details.bookingPlatforms.join(', '))],
+            ['Booking.com', details.listingUrlBookingCom ? link(details.listingUrlBookingCom) : ''],
+            ['Airbnb', details.listingUrlAirbnb ? link(details.listingUrlAirbnb) : ''],
+            ['Other listing', details.listingUrlOther ? link(details.listingUrlOther) : ''],
+            ['Memberships', esc(details.industryMemberships)],
+            ['Heard via', esc(details.howHeard)],
+          ])}
 
-              <tr style="background:#f0f4ea;"><td colspan="2" style="padding:8px 12px;font-weight:700;color:#385128;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Online Presence</td></tr>
-              ${row('Platforms', esc(details.bookingPlatforms.join(', ')))}
-              ${linkRow('Booking.com URL', details.listingUrlBookingCom)}
-              ${linkRow('Airbnb URL', details.listingUrlAirbnb)}
-              ${linkRow('Other listing URL', details.listingUrlOther)}
-              ${row('Industry memberships', esc(details.industryMemberships))}
-              ${row('How they heard', esc(details.howHeard))}
-            </table>
-
-            <div style="padding:16px;background:#fef9c3;border-top:1px solid #fde68a;">
-              <p style="margin:0;font-size:13px;color:#92400e;">
-                <strong>Action required:</strong> Log in to the GuestCheck admin panel to approve or reject this application.
-              </p>
-            </div>
-          </div>
-        </div>
-      `,
+          ${panel('<strong>Verify before approving.</strong> Approving activates every user on this property and grants access to the full guest review network.', 'warning')}
+          ${button('Open admin dashboard', `${baseUrl}/admin`)}
+        `,
+        footerNote: 'Reply to this email to contact the applicant directly.',
+      }),
     });
   },
 
   async sendApplicationReceived(to: string, firstName: string, propertyName: string): Promise<void> {
+    const steps: Array<[string, string]> = [
+      ['We review your application', 'Usually within 24 hours.'],
+      ['We may call to verify', 'On the direct number you provided.'],
+      ['You receive your decision', "Once approved, you'll get a confirmation email and can sign in."],
+    ];
+
     await send({
       to,
-      subject: `Your GuestCheck application has been received — ${propertyName.replace(/[\r\n]+/g, ' ')}`,
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background:#1e2b16;padding:20px 24px;border-radius:8px 8px 0 0;">
-            <h1 style="color:#a4bd80;margin:0;font-size:20px;">Application Received</h1>
-          </div>
-          <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
-            <p>Hi ${esc(firstName)},</p>
-            <p>Thank you for applying to join GuestCheck with <strong>${esc(propertyName)}</strong>.</p>
-            <p>Your application is now being reviewed by our team. Here's what happens next:</p>
-            <ol style="line-height:2;">
-              <li>We review your application details (usually within 24 hours)</li>
-              <li>We may contact you on your provided phone number to verify your details</li>
-              <li>Once approved, you'll receive a confirmation email with your login details</li>
-            </ol>
-            <p style="color:#6b7280;font-size:13px;margin-top:24px;">
-              If you have any questions in the meantime, please reply to this email.<br/>
-              <strong>Do not attempt to log in until you receive your approval email</strong> — your account will not be active until verification is complete.
-            </p>
-          </div>
-        </div>
-      `,
+      subject: `We've received your application for ${propertyName.replace(/[\r\n]+/g, ' ')}`,
+      html: layout({
+        preview: 'Your application is with our verification team. Here’s what happens next.',
+        eyebrow: 'Application received',
+        heading: 'Thanks — we have your application',
+        content: `
+          ${paragraph(`Hi ${esc(firstName)}, thanks for applying to join Guest Check with <strong style="color:${C.ink};">${esc(propertyName)}</strong>.`)}
+          ${paragraph('Every property is verified by a person before activation &mdash; it&rsquo;s what keeps the review data trustworthy. Here&rsquo;s what happens next:')}
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 4px;">
+            ${steps.map(([t, d], i) => `
+            <tr>
+              <td width="34" valign="top" style="padding:12px 0;">
+                <div style="width:24px;height:24px;background:${C.creamSoft};border-radius:12px;text-align:center;font-family:${FONT_BODY};font-size:12px;font-weight:700;color:${C.forest};line-height:24px;">${i + 1}</div>
+              </td>
+              <td valign="top" style="padding:12px 0;">
+                <div style="font-family:${FONT_BODY};font-size:14px;font-weight:600;color:${C.ink};margin-bottom:2px;">${t}</div>
+                <div style="font-family:${FONT_BODY};font-size:13px;line-height:1.55;color:${C.inkFaint};">${d}</div>
+              </td>
+            </tr>`).join('')}
+          </table>
+          ${panel(`<strong style="display:block;margin-bottom:4px;color:${C.ink};">Please don&rsquo;t try to sign in yet</strong>Your account stays inactive until verification is complete. You&rsquo;ll know the moment it&rsquo;s ready.`)}
+        `,
+        footerNote: 'Questions in the meantime? Just reply to this email.',
+      }),
     });
   },
 };
