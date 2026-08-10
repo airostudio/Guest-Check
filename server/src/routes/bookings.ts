@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import crypto from 'crypto';
-import { BookingSource, BookingStatus, RiskLevel } from '@prisma/client';
+import { BookingSource, BookingStatus, RiskLevel } from '../types/enums';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { db, Filter } from '../lib/supabase';

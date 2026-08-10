@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import crypto from 'crypto';
-import { ReviewStatus, SubscriptionTier } from '@prisma/client';
+import { ReviewStatus, SubscriptionTier } from '../types/enums';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { refreshGuestScore } from './guests';

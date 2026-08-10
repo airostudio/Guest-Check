@@ -74,12 +74,23 @@ CREATE TABLE IF NOT EXISTS "Property" (
   "verifiedAt"           TIMESTAMP(3),
   "verifiedBy"           TEXT,
   "rejectionReason"      TEXT,
+  -- Registration application data. Kept separate from "description", which is a
+  -- user-editable field exposed in Settings — storing metadata there let the
+  -- first Settings save destroy the verification record.
+  "applicationData"      JSONB,
+  "declarationsAcceptedAt" TIMESTAMP(3),
+  "declarations"         JSONB,
   "createdAt"            TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt"            TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "Property_pkey" PRIMARY KEY ("id")
 );
 CREATE INDEX IF NOT EXISTS "Property_city_country_idx" ON "Property"("city","country");
 CREATE INDEX IF NOT EXISTS "Property_status_idx"       ON "Property"("status");
+
+-- Backfill for databases created before these columns existed.
+ALTER TABLE "Property" ADD COLUMN IF NOT EXISTS "applicationData"        JSONB;
+ALTER TABLE "Property" ADD COLUMN IF NOT EXISTS "declarationsAcceptedAt" TIMESTAMP(3);
+ALTER TABLE "Property" ADD COLUMN IF NOT EXISTS "declarations"           JSONB;
 
 CREATE TABLE IF NOT EXISTS "User" (
   "id"                 TEXT       NOT NULL DEFAULT gen_random_uuid()::text,

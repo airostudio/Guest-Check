@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '../types/enums';
 import { body, validationResult } from 'express-validator';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';

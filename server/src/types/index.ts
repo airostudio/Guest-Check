@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { UserRole, SubscriptionTier, SubscriptionStatus } from '@prisma/client';
+import { UserRole, SubscriptionTier, SubscriptionStatus } from './enums';
 
 export interface AuthUser {
   id: string;

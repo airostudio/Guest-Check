@@ -119,6 +119,12 @@ model Property {
   verifiedBy           String?
   rejectionReason      String?
 
+  // Registration application record — separate from `description`, which is a
+  // user-editable field surfaced in Settings.
+  applicationData        Json?
+  declarations           Json?
+  declarationsAcceptedAt DateTime?
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

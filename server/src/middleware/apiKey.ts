@@ -3,7 +3,7 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../types';
 import { db } from '../lib/supabase';
 import logger from '../utils/logger';
-import { UserRole, SubscriptionTier, SubscriptionStatus } from '@prisma/client';
+import { UserRole, SubscriptionTier, SubscriptionStatus } from '../types/enums';
 
 interface ApiKeyRow {
   id: string;

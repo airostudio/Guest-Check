@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { BookingSource, BookingStatus, RiskLevel } from '@prisma/client';
+import { BookingSource, BookingStatus, RiskLevel } from '../types/enums';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { authenticate, requirePropertyAdmin } from '../middleware/auth';

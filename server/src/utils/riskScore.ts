@@ -1,4 +1,4 @@
-import { RiskLevel } from '@prisma/client';
+import { RiskLevel } from '../types/enums';
 import { RISK_THRESHOLDS } from '../types';
 
 export function calculateRiskLevel(averageRating: number | null): RiskLevel {

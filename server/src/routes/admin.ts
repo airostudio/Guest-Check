@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { PropertyStatus, ReviewStatus } from '@prisma/client';
+import { PropertyStatus, ReviewStatus } from '../types/enums';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { emailService } from '../services/email.service';
@@ -123,23 +123,28 @@ router.post(
       return;
     }
 
+    // Activate EVERY user attached to this property (not just PROPERTY_ADMIN, and
+    // not capped) — a single PATCH filtered by propertyId, awaited before we respond.
+    // This write must never be fire-and-forget: on serverless the instance freezes
+    // once the response flushes, silently leaving approved owners unable to log in.
+    await db.update('User', { propertyId: property.id }, {
+      isActive: true,
+      updatedAt: new Date().toISOString(),
+    });
+
     const admins = await db.select<UserRow>(
       'User',
       { propertyId: property.id, role: 'PROPERTY_ADMIN' },
-      { select: 'id,email,firstName', limit: 5 }
+      { select: 'id,email,firstName', limit: 1 }
     );
-
-    // Activate all users for this property now that it's approved
-    for (const admin of admins) {
-      db.update('User', { id: admin.id }, { isActive: true, updatedAt: new Date().toISOString() })
-        .catch(() => {});
-    }
 
     const admin = admins[0];
     if (admin) {
-      emailService
-        .sendPropertyApprovedEmail(admin.email, admin.firstName, property.name)
-        .catch((err) => logger.error('Failed to send approval email', err));
+      try {
+        await emailService.sendPropertyApprovedEmail(admin.email, admin.firstName, property.name);
+      } catch (err) {
+        logger.error('Failed to send approval email', err);
+      }
     }
 
     logger.info(`Property approved: ${property.name} (${property.id}) by ${req.user!.email}`);

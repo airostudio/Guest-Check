@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import config from '../config/config';
 import { AuthRequest, JwtPayload } from '../types';
 import { db } from '../lib/supabase';
-import { UserRole, SubscriptionTier, SubscriptionStatus } from '@prisma/client';
+import { UserRole, SubscriptionTier, SubscriptionStatus } from '../types/enums';
 
 interface UserRow {
   id: string;

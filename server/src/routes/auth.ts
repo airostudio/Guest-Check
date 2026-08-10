@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { UserRole, PropertyType } from '@prisma/client';
+import { UserRole, PropertyType } from '../types/enums';
 import crypto from 'crypto';
 import config from '../config/config';
 import { authenticate } from '../middleware/auth';
@@ -56,8 +56,24 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     legalBusinessName, businessRegNumber,
     countryOfIncorporation, yearsInOperation,
     bookingPlatforms, listingUrlBookingCom, listingUrlAirbnb, listingUrlOther,
-    industryMemberships, howHeard,
+    industryMemberships, howHeard, declarations,
   } = req.body;
+
+  // The five legal declarations are the platform's evidence that the applicant
+  // accepted the review-integrity terms. Refuse the application without them.
+  const REQUIRED_DECLARATIONS = [
+    'isAuthorised', 'onlyRealReviews', 'noFalseReviews', 'agreeTerms', 'understandsReview',
+  ] as const;
+  const missingDeclaration = REQUIRED_DECLARATIONS.find(
+    (k) => declarations?.[k] !== true
+  );
+  if (missingDeclaration) {
+    res.status(400).json({
+      success: false,
+      message: 'All declarations must be accepted to submit an application',
+    });
+    return;
+  }
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
     res.status(400).json({ success: false, message: 'A valid email address is required' });
@@ -114,7 +130,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     const propertyId = crypto.randomBytes(12).toString('base64url');
     const userId = crypto.randomBytes(12).toString('base64url');
 
-    const extraInfo = JSON.stringify({
+    const applicationData = {
       applicantJobTitle: jobTitle || '',
       applicantPhone: applicantPhone || '',
       numberOfRooms: numberOfRooms || '',
@@ -122,13 +138,15 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       legalBusinessName: legalBusinessName || '',
       countryOfIncorporation: countryOfIncorporation || '',
       yearsInOperation: yearsInOperation || '',
-      bookingPlatforms: Array.isArray(bookingPlatforms) ? bookingPlatforms.join(', ') : '',
+      bookingPlatforms: Array.isArray(bookingPlatforms) ? bookingPlatforms : [],
       listingUrlBookingCom: listingUrlBookingCom || '',
       listingUrlAirbnb: listingUrlAirbnb || '',
       listingUrlOther: listingUrlOther || '',
       industryMemberships: industryMemberships || '',
       howHeard: howHeard || '',
-    });
+      submittedFromIp: req.ip ?? null,
+      submittedAt: now,
+    };
 
     const property = await db.insert<PropertyRow>('Property', {
       id: propertyId,
@@ -142,7 +160,9 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       website: propertyWebsite?.trim() || null,
       vatNumber: vatNumber?.trim() || null,
       businessRegNumber: businessRegNumber?.trim() || null,
-      description: extraInfo,
+      applicationData,
+      declarations,
+      declarationsAcceptedAt: now,
       billingEmail: normalizedEmail,
       status: 'PENDING_VERIFICATION',
       subscriptionTier: 'FREE_TRIAL',

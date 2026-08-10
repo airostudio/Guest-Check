@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { ReviewStatus, RiskLevel } from '@prisma/client';
+import { ReviewStatus, RiskLevel } from '../types/enums';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { ratingToLabel } from '../utils/riskScore';

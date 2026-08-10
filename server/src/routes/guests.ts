@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { body, query, validationResult } from 'express-validator';
 import crypto from 'crypto';
-import { RiskLevel, ReviewStatus } from '@prisma/client';
+import { RiskLevel, ReviewStatus } from '../types/enums';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { calculateRiskLevel } from '../utils/riskScore';

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { SubscriptionTier, SubscriptionStatus } from '@prisma/client';
+import { SubscriptionTier, SubscriptionStatus } from '../types/enums';
 import { authenticate, requirePropertyAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { stripeService } from '../services/stripe.service';
