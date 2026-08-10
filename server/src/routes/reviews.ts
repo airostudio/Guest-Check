@@ -6,6 +6,7 @@ import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { refreshGuestScore } from './guests';
 import { db } from '../lib/supabase';
+import { parsePagination, totalPages } from '../utils/pagination';
 import config from '../config/config';
 
 function planLimits(tier: SubscriptionTier | undefined) {
@@ -222,8 +223,7 @@ router.get(
       return;
     }
 
-    const page = Math.max(1, parseInt(req.query.page as string || '1', 10));
-    const limit = Math.min(parseInt(req.query.limit as string || '20', 10), 50);
+    const { page, limit, offset } = parsePagination(req.query as Record<string, unknown>, 20, 50);
 
     const { data: reviews, total } = await db.selectAndCount<ReviewRow>(
       'Review',
@@ -255,7 +255,7 @@ router.get(
     res.json({
       success: true,
       data: enriched,
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      pagination: { page, limit, total, totalPages: totalPages(total, limit) },
     });
   }
 );

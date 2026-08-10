@@ -5,7 +5,9 @@ import { RiskLevel, ReviewStatus } from '../types/enums';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { calculateRiskLevel } from '../utils/riskScore';
-import { db } from '../lib/supabase';
+import { db, OrCondition } from '../lib/supabase';
+import { parsePagination, totalPages } from '../utils/pagination';
+import { normalizePhone, phoneMatchVariants } from '../utils/phone';
 
 const router = Router();
 
@@ -15,6 +17,7 @@ interface GuestRow {
   lastName: string;
   email: string | null;
   phone: string | null;
+  phoneNormalized: string | null;
   nationality: string | null;
   idType: string | null;
   idLast4: string | null;
@@ -82,16 +85,15 @@ router.get(
     }
 
     const searchTerm = req.query.q as string;
-    const page = Math.max(1, parseInt(req.query.page as string || '1', 10));
-    const limit = Math.min(parseInt(req.query.limit as string || '20', 10), 50);
-    const offset = (page - 1) * limit;
+    const { page, limit, offset } = parsePagination(req.query, 20, 50);
 
-    const orFilter = [
-      `firstName.ilike.*${searchTerm}*`,
-      `lastName.ilike.*${searchTerm}*`,
-      `email.ilike.*${searchTerm}*`,
-      `phone.ilike.*${searchTerm}*`,
-    ].join(',');
+    // Values are escaped by the query builder — never interpolate them here.
+    const orFilter: OrCondition[] = [
+      { column: 'firstName', op: 'ilike', value: `*${searchTerm}*` },
+      { column: 'lastName',  op: 'ilike', value: `*${searchTerm}*` },
+      { column: 'email',     op: 'ilike', value: `*${searchTerm}*` },
+      { column: 'phone',     op: 'ilike', value: `*${searchTerm}*` },
+    ];
 
     const { data: guests, total } = await db.selectAndCount<GuestRow>(
       'Guest',
@@ -108,7 +110,7 @@ router.get(
     res.json({
       success: true,
       data: guests,
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      pagination: { page, limit, total, totalPages: totalPages(total, limit) },
     });
   }
 );
@@ -125,6 +127,12 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promis
     res.status(404).json({ success: false, message: 'Guest not found' });
     return;
   }
+
+  // `notes`, `idType` and `idLast4` are internal to whichever property recorded
+  // them — the Guest row is shared platform-wide, so they must not be returned
+  // to every property that looks the guest up.
+  const { notes, idType, idLast4, phoneNormalized, ...guestPublic } = guest;
+  void notes; void idType; void idLast4; void phoneNormalized;
 
   const [phoneNumbers, reviews, bookings] = await Promise.all([
     db.select<{ number: string; isPrimary: boolean }>(
@@ -164,7 +172,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response): Promis
   res.json({
     success: true,
     data: {
-      ...guest,
+      ...guestPublic,
       phoneNumbers,
       reviews: reviewsWithPrivacy,
       bookings,
@@ -212,6 +220,7 @@ router.post(
       lastName,
       email: email ?? null,
       phone: phone ?? null,
+      phoneNormalized: normalizePhone(phone) || null,
       nationality: nationality ?? null,
       idType: idType ?? null,
       idLast4: idLast4 ?? null,
@@ -231,16 +240,18 @@ router.get(
   '/lookup/phone/:number',
   authenticate,
   async (req: AuthRequest, res: Response): Promise<void> => {
-    const { number } = req.params;
-    const normalized = number.replace(/\D/g, '');
-    if (normalized.length < 7) {
+    const variants = phoneMatchVariants(req.params.number);
+    if (variants.length === 0) {
       res.status(400).json({ success: false, message: 'Phone number must contain at least 7 digits' });
       return;
     }
+    const normalized = variants[0];
 
+    // Match the digits-only column — the formatted `phone` column never matched
+    // a digits-only query.
     const [directMatches, phoneRecords] = await Promise.all([
-      db.select<GuestRow>('Guest', { phone: { ilike: `*${normalized}*` } }, { limit: 5 }),
-      db.select<{ guestId: string }>('GuestPhone', { number: { ilike: `*${normalized}*` } }, { select: 'guestId', limit: 10 }),
+      db.select<GuestRow>('Guest', { phoneNormalized: { ilike: `*${normalized}` } }, { limit: 5 }),
+      db.select<{ guestId: string }>('GuestPhone', { numberNormalized: { ilike: `*${normalized}` } }, { select: 'guestId', limit: 10 }),
     ]);
 
     const extraIds = phoneRecords.map((p) => p.guestId).filter((gid) => !directMatches.find((g) => g.id === gid));

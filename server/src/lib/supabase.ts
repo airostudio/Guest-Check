@@ -32,6 +32,32 @@ function formatValue(v: unknown): string {
   return String(v);
 }
 
+/**
+ * Column names are structural — they are never percent-encoded, so they must
+ * never carry user input. Anything outside this shape is a programming error.
+ */
+function assertSafeColumn(name: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new Error(`Unsafe column name in query: ${JSON.stringify(name)}`);
+  }
+  return name;
+}
+
+/**
+ * Quote a value for use inside a PostgREST filter.
+ *
+ * PostgREST treats , . ( ) : as structural, so an unquoted value can break out
+ * of its filter and inject additional predicates. Double-quoting neutralises
+ * them; backslash and quote are escaped first, then the payload is percent-
+ * encoded so it cannot terminate the parameter or start a new one.
+ *
+ * `*` is deliberately left unencoded — it is the ilike wildcard.
+ */
+function quoteValue(v: unknown): string {
+  const escaped = formatValue(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return `"${encodeURIComponent(escaped).replace(/%2A/gi, '*')}"`;
+}
+
 export type Filter =
   | string
   | number
@@ -40,22 +66,58 @@ export type Filter =
   | null
   | { gt?: unknown; lt?: unknown; gte?: unknown; lte?: unknown; neq?: unknown; in?: unknown[]; ilike?: string; like?: string };
 
+/** A single OR branch. Values are always escaped by the builder. */
+export interface OrCondition {
+  column: string;
+  op: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'ilike';
+  value: unknown;
+}
+
+/**
+ * Build `or=(col.op.val,...)`. Callers pass structured conditions rather than a
+ * pre-joined string so user input can never reach the query as raw syntax.
+ * Returns '' for an empty condition list.
+ */
+function buildOr(conditions: OrCondition[]): string {
+  if (conditions.length === 0) return '';
+  const parts = conditions.map(
+    (c) => `${assertSafeColumn(c.column)}.${c.op}.${quoteValue(c.value)}`
+  );
+  return `or=(${parts.join(',')})`;
+}
+
 function buildFilters(filters: Record<string, Filter>): string {
   const params: string[] = [];
-  for (const [key, val] of Object.entries(filters)) {
+  for (const [rawKey, val] of Object.entries(filters)) {
     if (val === undefined) continue;
+    const key = assertSafeColumn(rawKey);
+
     if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
       for (const [op, v] of Object.entries(val as Record<string, unknown>)) {
-        if (op === 'in' && Array.isArray(v)) {
-          params.push(`${encodeURIComponent(key)}=in.(${v.map((x) => encodeURIComponent(formatValue(x))).join(',')})`);
+        if (v === undefined) continue; // `{ gte: undefined }` must not become `gte.null`
+
+        if (op === 'in') {
+          if (!Array.isArray(v)) {
+            throw new Error(`Filter "${key}.in" expects an array`);
+          }
+          // An empty IN list is a PostgREST syntax error. Emit an
+          // always-false predicate so callers get zero rows, not a 400.
+          if (v.length === 0) {
+            params.push(`${key}=in.("")&${key}=not.in.("")`);
+            continue;
+          }
+          params.push(`${key}=in.(${v.map((x) => quoteValue(x)).join(',')})`);
+        } else if (v === null) {
+          // `is` is the only operator that compares against SQL NULL.
+          params.push(`${key}=${op === 'neq' ? 'not.is' : 'is'}.null`);
         } else {
-          params.push(`${encodeURIComponent(key)}=${op}.${encodeURIComponent(formatValue(v))}`);
+          params.push(`${key}=${op}.${quoteValue(v)}`);
         }
       }
     } else if (val === null) {
-      params.push(`${encodeURIComponent(key)}=is.null`);
+      params.push(`${key}=is.null`);
     } else {
-      params.push(`${encodeURIComponent(key)}=eq.${encodeURIComponent(formatValue(val))}`);
+      params.push(`${key}=eq.${quoteValue(val)}`);
     }
   }
   return params.join('&');
@@ -117,7 +179,45 @@ export interface SelectOptions {
   limit?: number;
   offset?: number;
   order?: string;
-  or?: string;
+  /** Structured OR conditions — values are escaped by the query builder. */
+  or?: OrCondition[];
+}
+
+/**
+ * Assemble the query string for a read. Numeric options are coerced to safe
+ * integers so a hostile `?limit=abc` can never put NaN into the URL (PostgREST
+ * answers 400, which previously surfaced as an unhandled rejection).
+ */
+function buildQuery(filters: Record<string, Filter>, options: SelectOptions): string {
+  const parts = [buildFilters(filters)];
+
+  if (options.or?.length) parts.push(buildOr(options.or));
+  if (options.select) parts.push(`select=${encodeURIComponent(options.select)}`);
+
+  if (options.limit !== undefined) {
+    const limit = Math.max(0, Math.trunc(Number(options.limit) || 0));
+    parts.push(`limit=${limit}`);
+  }
+  if (options.offset !== undefined) {
+    const offset = Math.max(0, Math.trunc(Number(options.offset) || 0));
+    parts.push(`offset=${offset}`);
+  }
+  if (options.order) parts.push(`order=${encodeURIComponent(options.order)}`);
+
+  const query = parts.filter(Boolean).join('&');
+  return query ? `?${query}` : '';
+}
+
+/**
+ * Parse the total from a Content-Range header.
+ * "0-19/123" → 123, "*​/0" → 0, "0-19/*" or missing → NaN (caller decides).
+ */
+function parseCount(contentRange: string | null): number {
+  if (!contentRange) return NaN;
+  const total = contentRange.split('/')[1];
+  if (!total || total === '*') return NaN;
+  const n = parseInt(total, 10);
+  return Number.isNaN(n) ? NaN : n;
 }
 
 export const db = {
@@ -126,14 +226,7 @@ export const db = {
     filters: Record<string, Filter> = {},
     options: SelectOptions = {}
   ): Promise<T[]> {
-    const parts = [buildFilters(filters)];
-    if (options.or) parts.push(`or=(${options.or})`);
-    if (options.select) parts.push(`select=${encodeURIComponent(options.select)}`);
-    if (options.limit !== undefined) parts.push(`limit=${options.limit}`);
-    if (options.offset !== undefined) parts.push(`offset=${options.offset}`);
-    if (options.order) parts.push(`order=${encodeURIComponent(options.order)}`);
-    const query = parts.filter(Boolean).join('&');
-    const path = `${table}${query ? '?' + query : ''}`;
+    const path = `${table}${buildQuery(filters, options)}`;
     return request<T[]>('GET', path);
   },
 
@@ -151,29 +244,22 @@ export const db = {
     filters: Record<string, Filter> = {},
     options: SelectOptions = {}
   ): Promise<{ data: T[]; total: number }> {
-    const parts = [buildFilters(filters)];
-    if (options.or) parts.push(`or=(${options.or})`);
-    if (options.select) parts.push(`select=${encodeURIComponent(options.select)}`);
-    if (options.limit !== undefined) parts.push(`limit=${options.limit}`);
-    if (options.offset !== undefined) parts.push(`offset=${options.offset}`);
-    if (options.order) parts.push(`order=${encodeURIComponent(options.order)}`);
-    const query = parts.filter(Boolean).join('&');
-    const path = `${table}${query ? '?' + query : ''}`;
+    const path = `${table}${buildQuery(filters, options)}`;
     const r = await rawRequest<T[]>('GET', path, undefined, { Prefer: 'count=exact' });
-    // Content-Range: "0-19/123"  →  total = 123
-    const total = r.contentRange ? parseInt(r.contentRange.split('/')[1] ?? '0', 10) : r.data.length;
-    return { data: r.data, total };
+    // Content-Range: "0-19/123" → 123.  "*/0" → 0.  "0-19/*" → fall back.
+    const parsed = parseCount(r.contentRange);
+    return { data: r.data, total: Number.isFinite(parsed) ? parsed : r.data.length };
   },
 
-  async count(table: string, filters: Record<string, Filter> = {}, options: { or?: string } = {}): Promise<number> {
-    const parts = [buildFilters(filters)];
-    if (options.or) parts.push(`or=(${options.or})`);
-    parts.push('select=id');
-    parts.push('limit=1');
-    const query = parts.filter(Boolean).join('&');
-    const path = `${table}${query ? '?' + query : ''}`;
+  async count(
+    table: string,
+    filters: Record<string, Filter> = {},
+    options: { or?: OrCondition[] } = {}
+  ): Promise<number> {
+    const path = `${table}${buildQuery(filters, { ...options, select: 'id', limit: 1 })}`;
     const r = await rawRequest<unknown[]>('GET', path, undefined, { Prefer: 'count=exact' });
-    return r.contentRange ? parseInt(r.contentRange.split('/')[1] ?? '0', 10) : 0;
+    const total = parseCount(r.contentRange);
+    return Number.isFinite(total) ? total : 0;
   },
 
   async insert<T = Record<string, unknown>>(
@@ -190,6 +276,8 @@ export const db = {
     data: Record<string, unknown>
   ): Promise<T[]> {
     const query = buildFilters(filters);
+    // An empty filter would rewrite every row in the table.
+    if (!query) throw new Error(`Refusing to UPDATE all rows of "${table}" with no filter`);
     return request<T[]>('PATCH', `${table}?${query}`, data);
   },
 
@@ -204,6 +292,8 @@ export const db = {
 
   async delete(table: string, filters: Record<string, Filter>): Promise<void> {
     const query = buildFilters(filters);
+    // An empty filter would delete every row in the table.
+    if (!query) throw new Error(`Refusing to DELETE all rows of "${table}" with no filter`);
     await request('DELETE', `${table}?${query}`);
   },
 

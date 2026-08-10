@@ -7,13 +7,33 @@ if (process.env.NODE_ENV !== 'production') {
   dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 }
 
+/**
+ * The JWT secret signs every session token, so a known fallback value means
+ * anyone can forge a SUPER_ADMIN token. Fail closed in production rather than
+ * booting with a secret that is public in this repository.
+ */
+function resolveJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (secret && secret.length >= 32) return secret;
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'JWT_SECRET must be set to at least 32 characters in production. ' +
+      'Generate one with: openssl rand -base64 48'
+    );
+  }
+
+  if (secret) return secret; // short secret is tolerable locally
+  return 'dev_only_insecure_secret_do_not_use_in_production';
+}
+
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '4000', 10),
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'changeme_set_JWT_SECRET_in_vercel',
+    secret: resolveJwtSecret(),
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
 

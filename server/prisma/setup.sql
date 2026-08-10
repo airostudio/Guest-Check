@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS "Guest" (
   "lastName"      TEXT        NOT NULL,
   "email"         TEXT,
   "phone"         TEXT,
+  "phoneNormalized" TEXT,   -- digits only; caller-ID lookup matches on this
   "nationality"   TEXT,
   "idType"        TEXT,
   "idLast4"       TEXT,
@@ -140,10 +141,18 @@ CREATE INDEX IF NOT EXISTS "Guest_email_idx"     ON "Guest"("email");
 CREATE INDEX IF NOT EXISTS "Guest_phone_idx"     ON "Guest"("phone");
 CREATE INDEX IF NOT EXISTS "Guest_riskLevel_idx" ON "Guest"("riskLevel");
 
+-- Caller-ID support for databases created before phoneNormalized existed.
+ALTER TABLE "Guest" ADD COLUMN IF NOT EXISTS "phoneNormalized" TEXT;
+UPDATE "Guest"
+   SET "phoneNormalized" = regexp_replace(COALESCE("phone", ''), '[^0-9]', '', 'g')
+ WHERE "phoneNormalized" IS NULL AND "phone" IS NOT NULL;
+CREATE INDEX IF NOT EXISTS "Guest_phoneNormalized_idx" ON "Guest"("phoneNormalized");
+
 CREATE TABLE IF NOT EXISTS "GuestPhone" (
   "id"        TEXT    NOT NULL DEFAULT gen_random_uuid()::text,
   "guestId"   TEXT    NOT NULL,
   "number"    TEXT    NOT NULL,
+  "numberNormalized" TEXT,  -- digits only; caller-ID lookup matches on this
   "isPrimary" BOOLEAN NOT NULL DEFAULT false,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "GuestPhone_pkey" PRIMARY KEY ("id"),
@@ -152,6 +161,12 @@ CREATE TABLE IF NOT EXISTS "GuestPhone" (
     REFERENCES "Guest"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 CREATE INDEX IF NOT EXISTS "GuestPhone_number_idx" ON "GuestPhone"("number");
+
+ALTER TABLE "GuestPhone" ADD COLUMN IF NOT EXISTS "numberNormalized" TEXT;
+UPDATE "GuestPhone"
+   SET "numberNormalized" = regexp_replace("number", '[^0-9]', '', 'g')
+ WHERE "numberNormalized" IS NULL;
+CREATE INDEX IF NOT EXISTS "GuestPhone_numberNormalized_idx" ON "GuestPhone"("numberNormalized");
 
 CREATE TABLE IF NOT EXISTS "Booking" (
   "id"             TEXT            NOT NULL DEFAULT gen_random_uuid()::text,

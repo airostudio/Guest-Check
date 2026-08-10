@@ -5,6 +5,7 @@ import { BookingSource, BookingStatus, RiskLevel } from '../types/enums';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { db, Filter } from '../lib/supabase';
+import { parsePagination, totalPages } from '../utils/pagination';
 import { emailService } from '../services/email.service';
 
 const router = Router();
@@ -144,8 +145,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<v
     return;
   }
 
-  const page = Math.max(1, parseInt(req.query.page as string || '1', 10));
-  const limit = Math.min(parseInt(req.query.limit as string || '20', 10), 100);
+  const { page, limit, offset } = parsePagination(req.query as Record<string, unknown>, 20, 100);
   const status = req.query.status as BookingStatus | undefined;
   const upcoming = req.query.upcoming === 'true';
 
@@ -181,7 +181,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response): Promise<v
   res.json({
     success: true,
     data: enriched,
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    pagination: { page, limit, total, totalPages: totalPages(total, limit) },
   });
 });
 

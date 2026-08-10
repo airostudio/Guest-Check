@@ -47,10 +47,14 @@ const globalLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Credential endpoints only. Applying this to the whole /api/auth router also
+// throttled GET /auth/me, which the client calls on every page load — behind a
+// hotel's shared NAT, ten page loads across all staff locked everyone out.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   message: { success: false, message: 'Too many requests, please try again later' },
+  skipSuccessfulRequests: true,
 });
 
 const adminLimiter = rateLimit({
@@ -74,6 +78,32 @@ const reviewLimiter = rateLimit({
 const phoneLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
+  message: { success: false, message: 'Too many requests, please try again later' },
+});
+
+// Unauthenticated and email-triggering — needs its own tight budget.
+const waitlistLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { success: false, message: 'Too many requests, please try again later' },
+});
+
+const cronLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: { success: false, message: 'Too many requests, please try again later' },
+});
+
+// Webhook receivers: generous (platforms burst) but not unbounded.
+const integrationsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  message: { success: false, message: 'Too many requests, please try again later' },
+});
+
+const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
   message: { success: false, message: 'Too many requests, please try again later' },
 });
 
@@ -101,39 +131,33 @@ if (config.env !== 'test') {
 
 // ─── Health / Diagnostics ─────────────────────────────────────────────────────
 
-app.get('/health', (_req, res) => {
+// Must live under /api — vercel.json rewrites every non-/api path to the SPA,
+// so a bare /health returned index.html with a 200 and any uptime monitor
+// pointed at it reported "healthy" regardless of API state.
+const healthHandler = (_req: express.Request, res: express.Response): void => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
-});
-
-// Temporary diagnostics endpoint — tests HTTPS connection to Supabase REST API.
-app.get('/api/debug', async (_req, res) => {
-  const { db } = await import('./lib/supabase');
-  const health = await db.health();
-
-  res.json({
-    NODE_ENV:                  process.env.NODE_ENV ?? '(not set)',
-    JWT_SECRET:                process.env.JWT_SECRET ? `[set, ${process.env.JWT_SECRET.length} chars]` : '(not set)',
-    SUPABASE_URL:              process.env.SUPABASE_URL ?? '(derived from DATABASE_URL)',
-    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? `[set, ${process.env.SUPABASE_SERVICE_ROLE_KEY.length} chars]` : '(NOT SET — required)',
-    DATABASE_URL:              process.env.DATABASE_URL ? '[set]' : '(not set)',
-    httpsConnection:           health,
-  });
-});
+};
+app.get('/api/health', healthHandler);
+app.get('/health', healthHandler); // local/dev convenience
 
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
-app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
+app.use('/api/auth/reset-password', authLimiter);
+app.use('/api/auth', authRoutes);
 app.use('/api/guests', guestLimiter, guestRoutes);
 app.use('/api/reviews', reviewLimiter, reviewRoutes);
-app.use('/api/bookings', bookingRoutes);
-app.use('/api/properties', propertyRoutes);
+app.use('/api/bookings', writeLimiter, bookingRoutes);
+app.use('/api/properties', writeLimiter, propertyRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
-app.use('/api/integrations', integrationRoutes);
+app.use('/api/integrations', integrationsLimiter, integrationRoutes);
 app.use('/api/phone', phoneLimiter, phoneRoutes);
 app.use('/api/admin', adminLimiter, adminRoutes);
-app.use('/api/cron', cronRoutes);
-app.use('/api/waitlist', waitlistRoutes);
+app.use('/api/cron', cronLimiter, cronRoutes);
+app.use('/api/waitlist', waitlistLimiter, waitlistRoutes);
 
 // ─── 404 + Error Handlers ─────────────────────────────────────────────────────
 

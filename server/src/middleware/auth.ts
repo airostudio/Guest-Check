@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import config from '../config/config';
 import { AuthRequest, JwtPayload } from '../types';
 import { db } from '../lib/supabase';
-import { UserRole, SubscriptionTier, SubscriptionStatus } from '../types/enums';
+import { UserRole, SubscriptionTier, SubscriptionStatus, PropertyStatus } from '../types/enums';
 
 interface UserRow {
   id: string;
@@ -64,6 +64,34 @@ export const authenticate = async (
         { id: user.propertyId },
         { select: 'subscriptionTier,subscriptionStatus,status' }
       );
+    }
+
+    // Property status was fetched but never enforced, so POST /admin/properties/
+    // :id/suspend changed a column and nothing else — suspended and rejected
+    // properties kept full access. SUPER_ADMINs are exempt (no property, and
+    // they must be able to administer suspended ones).
+    if (property && user.role !== UserRole.SUPER_ADMIN) {
+      if (property.status === PropertyStatus.SUSPENDED) {
+        res.status(403).json({
+          success: false,
+          message: 'This property has been suspended. Please contact support.',
+        });
+        return;
+      }
+      if (property.status === PropertyStatus.REJECTED) {
+        res.status(403).json({
+          success: false,
+          message: 'This property application was not approved.',
+        });
+        return;
+      }
+      if (property.status === PropertyStatus.PENDING_VERIFICATION) {
+        res.status(403).json({
+          success: false,
+          message: 'Your property is pending verification. We will email you once it is approved.',
+        });
+        return;
+      }
     }
 
     req.user = {

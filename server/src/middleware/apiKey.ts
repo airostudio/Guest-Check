@@ -17,6 +17,7 @@ interface PropertyRow {
   id: string;
   subscriptionTier: SubscriptionTier;
   subscriptionStatus: SubscriptionStatus;
+  status: string;
 }
 
 interface UserRow {
@@ -55,11 +56,17 @@ export const authenticateApiKey = async (
   const property = await db.selectOne<PropertyRow>(
     'Property',
     { id: key.propertyId },
-    { select: 'id,subscriptionTier,subscriptionStatus' }
+    { select: 'id,subscriptionTier,subscriptionStatus,status' }
   );
 
   if (!property) {
     res.status(401).json({ success: false, message: 'Invalid API key configuration' });
+    return;
+  }
+
+  // An API key must not outlive its property's standing.
+  if (property.status !== 'ACTIVE') {
+    res.status(403).json({ success: false, message: 'Property is not active' });
     return;
   }
 
@@ -68,22 +75,32 @@ export const authenticateApiKey = async (
 
   const admins = await db.select<UserRow>(
     'User',
-    { propertyId: key.propertyId, role: 'PROPERTY_ADMIN' },
+    { propertyId: key.propertyId, role: 'PROPERTY_ADMIN', isActive: true },
     { select: 'id,email,firstName,lastName,role,propertyId', limit: 1 }
   );
   const adminUser = admins[0];
-  if (adminUser) {
-    req.user = {
-      id: adminUser.id,
-      email: adminUser.email,
-      firstName: adminUser.firstName,
-      lastName: adminUser.lastName,
-      role: adminUser.role,
-      propertyId: key.propertyId,
-      subscriptionTier: property.subscriptionTier,
-      subscriptionStatus: property.subscriptionStatus,
-    };
+
+  // Downstream handlers dereference req.user!. Previously a property with no
+  // active PROPERTY_ADMIN left it undefined and still called next(), turning
+  // into a TypeError inside the route.
+  if (!adminUser) {
+    res.status(403).json({
+      success: false,
+      message: 'This API key has no active administrator account associated with it',
+    });
+    return;
   }
+
+  req.user = {
+    id: adminUser.id,
+    email: adminUser.email,
+    firstName: adminUser.firstName,
+    lastName: adminUser.lastName,
+    role: adminUser.role,
+    propertyId: key.propertyId,
+    subscriptionTier: property.subscriptionTier,
+    subscriptionStatus: property.subscriptionStatus,
+  };
 
   next();
 };

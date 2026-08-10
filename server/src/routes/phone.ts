@@ -3,7 +3,8 @@ import { ReviewStatus, RiskLevel } from '../types/enums';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { ratingToLabel } from '../utils/riskScore';
-import { db } from '../lib/supabase';
+import { db, OrCondition } from '../lib/supabase';
+import { phoneMatchVariants } from '../utils/phone';
 
 const router = Router();
 
@@ -55,29 +56,37 @@ router.get(
   '/caller/:number',
   authenticate,
   async (req: AuthRequest, res: Response): Promise<void> => {
-    const rawNumber = req.params.number;
-    const digits = rawNumber.replace(/\D/g, '');
+    const searchVariants = phoneMatchVariants(req.params.number);
 
-    if (digits.length < 7) {
+    if (searchVariants.length === 0) {
       res.status(400).json({ success: false, message: 'Invalid phone number' });
       return;
     }
 
-    const searchVariants = Array.from(new Set([digits, digits.slice(-10), digits.slice(-9)].filter((v) => v.length >= 7)));
-
-    // Build OR filter — match phone or GuestPhone.number ending with any variant.
-    // Guest table has direct phone field; GuestPhone has number field. Query both.
-    const phoneFilter = searchVariants.map((v) => `phone.ilike.*${v}`).join(',');
-    const guestPhoneFilter = searchVariants.map((v) => `number.ilike.*${v}`).join(',');
+    // Match against the digits-only columns. Matching the formatted `phone`
+    // column against a digits-only query never succeeded — reception was told
+    // "unknown caller" for guests that were on file.
+    const phoneFilter: OrCondition[] = searchVariants.map((v) => ({
+      column: 'phoneNormalized', op: 'ilike', value: `*${v}`,
+    }));
+    const guestPhoneFilter: OrCondition[] = searchVariants.map((v) => ({
+      column: 'numberNormalized', op: 'ilike', value: `*${v}`,
+    }));
 
     const [directGuests, phoneRecords] = await Promise.all([
-      db.select<GuestRow>('Guest', {}, { or: phoneFilter, limit: 5 }),
+      db.select<GuestRow>('Guest', {}, {
+        or: phoneFilter,
+        select: 'id,firstName,lastName,nationality,averageRating,totalReviews,riskLevel,phone',
+        limit: 5,
+      }),
       db.select<{ guestId: string }>('GuestPhone', {}, { or: guestPhoneFilter, select: 'guestId', limit: 10 }),
     ]);
 
     const extraIds = phoneRecords.map((p) => p.guestId).filter((gid) => !directGuests.find((g) => g.id === gid));
     const extra = extraIds.length
-      ? await db.select<GuestRow>('Guest', { id: { in: extraIds } })
+      ? await db.select<GuestRow>('Guest', { id: { in: extraIds } }, {
+          select: 'id,firstName,lastName,nationality,averageRating,totalReviews,riskLevel,phone',
+        })
       : [];
 
     const guests = [...directGuests, ...extra].slice(0, 3);
@@ -97,14 +106,19 @@ router.get(
       db.select<ReviewRow>(
         'Review',
         { guestId: { in: guestIds }, status: ReviewStatus.PUBLISHED },
-        { order: 'createdAt.desc' }
+        {
+          // Explicit select — without it PostgREST returns every column and the
+          // spread below leaked other properties' privateNote to any receptionist.
+          select: 'id,guestId,propertyId,overallRating,publicComment,wouldWelcomeBack,isVerifiedStay,stayMonth,stayYear,status,createdAt',
+          order: 'createdAt.desc',
+        }
       ),
       db.select<BookingRow>(
         'Booking',
         req.user!.propertyId
           ? { guestId: { in: guestIds }, propertyId: req.user!.propertyId }
           : { guestId: { in: guestIds } },
-        { order: 'checkIn.desc' }
+        { select: 'id,guestId,propertyId,checkIn,checkOut,status,roomNumber', order: 'checkIn.desc' }
       ),
     ]);
 
@@ -134,7 +148,12 @@ router.get(
 
     const callerCards = guests.map((guest) => {
       const avgRating = guest.averageRating;
-      const riskLabel = avgRating ? ratingToLabel(avgRating) : 'No reviews yet';
+      // `0` is a legitimate (worst) rating — a truthiness check reported
+      // "No reviews yet" for the highest-risk guests.
+      const riskLabel =
+        avgRating !== null && avgRating !== undefined && guest.totalReviews > 0
+          ? ratingToLabel(avgRating)
+          : 'No reviews yet';
       const guestReviews = reviewsByGuest.get(guest.id) ?? [];
       const guestBookings = bookingsByGuest.get(guest.id) ?? [];
 

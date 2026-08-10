@@ -6,6 +6,7 @@ import { authenticate, requirePropertyAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import logger from '../utils/logger';
 import { db } from '../lib/supabase';
+import { normalizePhone } from '../utils/phone';
 
 const router = Router();
 
@@ -231,7 +232,10 @@ async function findOrCreateGuest(input: {
     guest = await db.selectOne<GuestRow>('Guest', { email: input.email });
   }
   if (!guest && input.phone) {
-    guest = await db.selectOne<GuestRow>('Guest', { phone: input.phone });
+    const normalized = normalizePhone(input.phone);
+    if (normalized) {
+      guest = await db.selectOne<GuestRow>('Guest', { phoneNormalized: normalized });
+    }
   }
   if (guest) return guest;
 
@@ -242,6 +246,7 @@ async function findOrCreateGuest(input: {
     lastName: input.lastName,
     email: input.email ?? null,
     phone: input.phone ?? null,
+    phoneNormalized: normalizePhone(input.phone) || null,
     nationality: input.nationality ?? null,
     totalReviews: 0,
     riskLevel: RiskLevel.UNREVIEWED,
@@ -414,6 +419,14 @@ router.post(
 
     if (!key || !key.isActive) {
       res.status(401).json({ success: false, message: 'Invalid API key' });
+      return;
+    }
+
+    // This route reimplements API-key auth and previously omitted the expiry
+    // check that middleware/apiKey.ts performs — keys issued with expiresInDays
+    // retained write access to the tenant indefinitely.
+    if (key.expiresAt && new Date(key.expiresAt) < new Date()) {
+      res.status(401).json({ success: false, message: 'API key has expired' });
       return;
     }
 

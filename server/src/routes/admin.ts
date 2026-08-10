@@ -5,6 +5,7 @@ import { AuthRequest } from '../types';
 import { emailService } from '../services/email.service';
 import logger from '../utils/logger';
 import { db } from '../lib/supabase';
+import { parsePagination, totalPages } from '../utils/pagination';
 
 const router = Router();
 
@@ -78,8 +79,7 @@ router.get(
   authenticate,
   requireSuperAdmin,
   async (req: AuthRequest, res: Response): Promise<void> => {
-    const page = Math.max(1, parseInt(req.query.page as string || '1', 10));
-    const limit = Math.min(parseInt(req.query.limit as string || '20', 10), 100);
+    const { page, limit, offset } = parsePagination(req.query as Record<string, unknown>, 20, 100);
     const status = req.query.status as PropertyStatus | undefined;
 
     const filters: Record<string, PropertyStatus> = {};
@@ -95,7 +95,7 @@ router.get(
     res.json({
       success: true,
       data: enriched,
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      pagination: { page, limit, total, totalPages: totalPages(total, limit) },
     });
   }
 );

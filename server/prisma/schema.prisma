@@ -180,6 +180,9 @@ model Guest {
   lastName      String
   email         String?
   phone         String?
+  /// Digits-only copy of `phone`. Caller-ID lookup matches on this — inbound
+  /// numbers are stripped to digits, so a formatted stored value never matches.
+  phoneNormalized String?
   nationality   String?
   // Store only partial ID for privacy - last 4 chars of passport/ID number
   idType        String?   // passport, national_id, drivers_license
@@ -201,6 +204,7 @@ model Guest {
 
   @@index([email])
   @@index([phone])
+  @@index([phoneNormalized])
   @@index([riskLevel])
 }
 
@@ -210,11 +214,14 @@ model GuestPhone {
   guestId   String
   guest     Guest    @relation(fields: [guestId], references: [id], onDelete: Cascade)
   number    String
+  /// Digits-only copy of `number` — see Guest.phoneNormalized.
+  numberNormalized String?
   isPrimary Boolean  @default(false)
   createdAt DateTime @default(now())
 
   @@unique([guestId, number])
   @@index([number])
+  @@index([numberNormalized])
 }
 
 model Review {
