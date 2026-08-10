@@ -16,7 +16,21 @@ interface WaitlistRow {
 
 router.post(
   '/',
-  [body('email').isEmail().normalizeEmail()],
+  [
+    // trim() must come first — a pasted address with a trailing space failed
+    // isEmail() and the signup was rejected. Subaddress/dot stripping is
+    // disabled so we email exactly the address the person entered.
+    body('email')
+      .trim()
+      .isEmail()
+      .normalizeEmail({
+        gmail_remove_dots: false,
+        gmail_remove_subaddress: false,
+        outlookdotcom_remove_subaddress: false,
+        yahoo_remove_subaddress: false,
+        icloud_remove_subaddress: false,
+      }),
+  ],
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -55,17 +69,31 @@ router.post(
       return;
     }
 
-    // Await the notification so it is not dropped when the serverless instance
+    // Await both sends so they are not dropped when the serverless instance
     // freezes on response. A send failure must not fail the request — the
     // signup is already saved — so it is logged and reconciled via `notified`.
-    try {
-      await emailService.sendWaitlistNotification(normalized);
-      await db.update('Waitlist', { email: normalized }, { notified: true });
-    } catch (err) {
-      logger.error(`Waitlist notification failed for ${normalized}: ${(err as Error).message}`);
+    const [notifyResult, confirmResult] = await Promise.allSettled([
+      emailService.sendWaitlistNotification(normalized),
+      emailService.sendWaitlistConfirmation(normalized),
+    ]);
+
+    if (notifyResult.status === 'fulfilled') {
+      await db.update('Waitlist', { email: normalized }, { notified: true }).catch(() => {});
+    } else {
+      logger.error(
+        `Waitlist admin notification FAILED for ${normalized}: ${notifyResult.reason?.message ?? notifyResult.reason}`
+      );
     }
 
-    res.json({ success: true });
+    if (confirmResult.status === 'rejected') {
+      logger.warn(
+        `Waitlist confirmation to subscriber failed for ${normalized}: ${confirmResult.reason?.message ?? confirmResult.reason}`
+      );
+    }
+
+    // The signup is recorded regardless — email delivery is reported separately
+    // so a misconfigured mailer is visible instead of silently losing leads.
+    res.json({ success: true, notified: notifyResult.status === 'fulfilled' });
   })
 );
 

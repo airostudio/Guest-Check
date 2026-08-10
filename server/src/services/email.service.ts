@@ -9,6 +9,60 @@ const transporter = nodemailer.createTransport({
   auth: { user: config.smtp.user, pass: config.smtp.pass },
 });
 
+/**
+ * SMTP credentials both default to '' in config, so with them unset nodemailer
+ * tries to authenticate as an empty user and every send fails with an opaque
+ * auth error. Detect that up front and say so plainly, rather than letting
+ * every email fail for a reason nobody can see.
+ */
+export function isEmailConfigured(): boolean {
+  return Boolean(config.smtp.host && config.smtp.user && config.smtp.pass);
+}
+
+let warnedUnconfigured = false;
+
+/** Wraps sendMail so an unconfigured mailer produces one clear, actionable error. */
+async function send(options: nodemailer.SendMailOptions): Promise<void> {
+  if (!isEmailConfigured()) {
+    if (!warnedUnconfigured) {
+      warnedUnconfigured = true;
+      logger.error(
+        'EMAIL NOT SENT — SMTP is not configured. Set SMTP_HOST, SMTP_USER and ' +
+        'SMTP_PASS (Gmail requires an App Password, not your account password). ' +
+        'No email of any kind will be delivered until these are set.'
+      );
+    }
+    throw new Error(
+      'Email is not configured on this server (SMTP_USER / SMTP_PASS are not set)'
+    );
+  }
+
+  const info = await transporter.sendMail(options);
+  logger.info(`Email sent to ${String(options.to)}: ${options.subject}`, {
+    messageId: info.messageId,
+    accepted: info.accepted,
+    rejected: info.rejected,
+  });
+}
+
+/** Connectivity check for the admin diagnostics endpoint. */
+export async function verifyEmailTransport(): Promise<{ ok: boolean; message: string }> {
+  if (!isEmailConfigured()) {
+    const missing = [
+      !config.smtp.host && 'SMTP_HOST',
+      !config.smtp.user && 'SMTP_USER',
+      !config.smtp.pass && 'SMTP_PASS',
+    ].filter(Boolean);
+    return { ok: false, message: `SMTP is not configured. Missing: ${missing.join(', ')}` };
+  }
+  try {
+    await transporter.verify();
+    return { ok: true, message: `Connected to ${config.smtp.host}:${config.smtp.port} as ${config.smtp.user}` };
+  } catch (err) {
+    return { ok: false, message: (err as Error).message };
+  }
+}
+
 const baseUrl = config.clientUrl;
 
 /**
@@ -43,7 +97,7 @@ function safeUrl(value: unknown): string | null {
 export const emailService = {
   async sendVerificationEmail(to: string, firstName: string, token: string): Promise<void> {
     const link = `${baseUrl}/verify-email/${encodeURIComponent(token)}`;
-    await transporter.sendMail({
+    await send({
       from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: 'Verify your GuestCheck account',
@@ -64,7 +118,7 @@ export const emailService = {
 
   async sendPasswordResetEmail(to: string, firstName: string, token: string): Promise<void> {
     const link = `${baseUrl}/reset-password/${encodeURIComponent(token)}`;
-    await transporter.sendMail({
+    await send({
       from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: 'Reset your GuestCheck password',
@@ -83,7 +137,7 @@ export const emailService = {
   },
 
   async sendPropertyApprovedEmail(to: string, firstName: string, propertyName: string): Promise<void> {
-    await transporter.sendMail({
+    await send({
       from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: 'Your GuestCheck property has been approved!',
@@ -109,7 +163,7 @@ export const emailService = {
   async sendPropertyRejectedEmail(
     to: string, firstName: string, propertyName: string, reason: string
   ): Promise<void> {
-    await transporter.sendMail({
+    await send({
       from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: 'GuestCheck property verification update',
@@ -129,7 +183,7 @@ export const emailService = {
     rating: number, riskLevel: 'HIGH_RISK' | 'POOR' = 'HIGH_RISK'
   ): Promise<void> {
     const isHigh = riskLevel === 'HIGH_RISK';
-    await transporter.sendMail({
+    await send({
       from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: `GuestCheck ${isHigh ? '⚠️ High-Risk' : 'Caution: Below-Average'} Guest — ${propertyName.replace(/[\r\n]+/g, ' ')}`,
@@ -163,7 +217,7 @@ export const emailService = {
       )
       .join('');
 
-    await transporter.sendMail({
+    await send({
       from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: `Reminder: ${checkouts.length} guest${checkouts.length > 1 ? 's' : ''} checked out yesterday — leave a review`,
@@ -183,7 +237,7 @@ export const emailService = {
   },
 
   async sendWaitlistNotification(signupEmail: string): Promise<void> {
-    await transporter.sendMail({
+    await send({
       from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to: config.waitlistNotifyEmail,
       subject: `New GuestCheck waitlist signup: ${signupEmail.replace(/[\r\n]+/g, ' ')}`,
@@ -193,6 +247,35 @@ export const emailService = {
           <p style="font-size: 18px;"><strong>${esc(signupEmail)}</strong> just joined the GuestCheck waitlist.</p>
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
           <p style="color: #6b7280; font-size: 13px;">Sent automatically from your GuestCheck coming soon page.</p>
+        </div>
+      `,
+    });
+  },
+
+  /** Confirmation to the person who joined the waitlist. */
+  async sendWaitlistConfirmation(to: string): Promise<void> {
+    await send({
+      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
+      to,
+      subject: "You're on the GuestCheck waitlist",
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background:#1e2b16;padding:20px 24px;border-radius:8px 8px 0 0;">
+            <h1 style="color:#a4bd80;margin:0;font-size:20px;">You're on the list</h1>
+          </div>
+          <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
+            <p>Thanks for your interest in GuestCheck.</p>
+            <p>
+              GuestCheck is the verified guest review platform built for accommodation
+              owners and managers — look up an arriving guest's review history from every
+              verified property before they check in.
+            </p>
+            <p>We'll email you as soon as we open for registrations. Early members get an extended free trial.</p>
+            <p style="color:#6b7280;font-size:13px;margin-top:24px;">
+              You received this because this address was entered on guestcheck.site.
+              If that wasn't you, simply ignore this email — you won't hear from us again.
+            </p>
+          </div>
         </div>
       `,
     });
@@ -223,7 +306,7 @@ export const emailService = {
         : row(label, esc(url));
     };
 
-    await transporter.sendMail({
+    await send({
       from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to: config.waitlistNotifyEmail,
       subject: `New GuestCheck application: ${details.propertyName} — ${details.propertyCity}, ${details.propertyCountry}`
@@ -283,7 +366,7 @@ export const emailService = {
   },
 
   async sendApplicationReceived(to: string, firstName: string, propertyName: string): Promise<void> {
-    await transporter.sendMail({
+    await send({
       from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
       to,
       subject: `Your GuestCheck application has been received — ${propertyName.replace(/[\r\n]+/g, ' ')}`,

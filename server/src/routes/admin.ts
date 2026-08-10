@@ -2,7 +2,8 @@ import { Router, Response } from 'express';
 import { PropertyStatus, ReviewStatus } from '../types/enums';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
-import { emailService } from '../services/email.service';
+import { emailService, isEmailConfigured, verifyEmailTransport } from '../services/email.service';
+import config from '../config/config';
 import logger from '../utils/logger';
 import { db } from '../lib/supabase';
 import { parsePagination, totalPages } from '../utils/pagination';
@@ -88,7 +89,7 @@ router.get(
     const { data: properties, total } = await db.selectAndCount<PropertyRow>(
       'Property',
       filters,
-      { order: 'createdAt.desc', limit, offset: (page - 1) * limit }
+      { order: 'createdAt.desc', limit, offset }
     );
 
     const enriched = await attachAdminUsers(properties);
@@ -332,6 +333,65 @@ router.get(
         totalReviews,
         flaggedReviews,
         highRiskGuests,
+      },
+    });
+  })
+);
+
+// ─── Waitlist ─────────────────────────────────────────────────────────────────
+
+interface WaitlistRow {
+  id: string;
+  email: string;
+  source: string | null;
+  notified: boolean;
+  createdAt: string;
+}
+
+// Signups are stored regardless of whether the notification email went out, so
+// this is the authoritative list — it works even with SMTP unconfigured.
+router.get(
+  '/waitlist',
+  authenticate,
+  requireSuperAdmin,
+  asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
+    const { page, limit, offset } = parsePagination(req.query as Record<string, unknown>, 50, 200);
+
+    const { data, total } = await db.selectAndCount<WaitlistRow>(
+      'Waitlist',
+      {},
+      { select: 'id,email,source,notified,createdAt', order: 'createdAt.desc', limit, offset }
+    );
+
+    res.json({
+      success: true,
+      data,
+      pagination: { page, limit, total, totalPages: totalPages(total, limit) },
+    });
+  })
+);
+
+// ─── Email diagnostics ────────────────────────────────────────────────────────
+
+// Authenticated replacement for the deleted public /api/debug endpoint. Reports
+// whether SMTP can actually connect, so a misconfigured mailer is visible
+// instead of silently swallowing every notification.
+router.get(
+  '/email/status',
+  authenticate,
+  requireSuperAdmin,
+  asyncHandler(async (_req: AuthRequest, res: Response): Promise<void> => {
+    const transport = await verifyEmailTransport();
+    const pendingNotification = await db.count('Waitlist', { notified: false });
+
+    res.json({
+      success: true,
+      data: {
+        configured: isEmailConfigured(),
+        transport,
+        notifyAddress: config.waitlistNotifyEmail,
+        fromAddress: config.smtp.fromEmail,
+        waitlistSignupsAwaitingNotification: pendingNotification,
       },
     });
   })
