@@ -9,6 +9,7 @@ import { db, OrCondition } from '../lib/supabase';
 import { parsePagination, totalPages } from '../utils/pagination';
 import { normalizePhone, phoneMatchVariants } from '../utils/phone';
 import { asyncHandler } from '../utils/asyncHandler';
+import { recordGuestLookup, lookupQuotaResponse } from '../middleware/planLimits';
 
 const router = Router();
 
@@ -86,6 +87,15 @@ router.get(
     }
 
     const searchTerm = req.query.q as string;
+
+    // Metered against the plan's monthly guest-lookup allowance, and recorded
+    // as an audit trail of who looked up what.
+    const quota = await recordGuestLookup(req, { method: 'search', query: searchTerm });
+    if (!quota.allowed) {
+      res.status(402).json(lookupQuotaResponse(quota.used, quota.limit));
+      return;
+    }
+
     const { page, limit, offset } = parsePagination(req.query, 20, 50);
 
     // Values are escaped by the query builder — never interpolate them here.
@@ -121,6 +131,12 @@ router.get(
 router.get('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const { id } = req.params;
   const propertyId = req.user!.propertyId;
+
+  const quota = await recordGuestLookup(req, { method: 'profile', guestId: id });
+  if (!quota.allowed) {
+    res.status(402).json(lookupQuotaResponse(quota.used, quota.limit));
+    return;
+  }
 
   const guest = await db.selectOne<GuestRow>('Guest', { id });
 

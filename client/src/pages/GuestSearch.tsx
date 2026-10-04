@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../api/client';
 import GuestCard from '../components/GuestCard';
+import QueryError from '../components/QueryError';
 import { Guest } from '../types';
 import { Search } from 'lucide-react';
 
@@ -17,7 +18,7 @@ export default function GuestSearch() {
     setTimer(t);
   };
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['guests', 'search', debouncedSearch],
     queryFn: () =>
       debouncedSearch.length >= 2
@@ -56,7 +57,15 @@ export default function GuestSearch() {
       </div>
 
       {/* Results */}
-      {debouncedSearch.length >= 2 && (
+      {error && (
+        <QueryError
+          error={error}
+          label="Guest search failed"
+          onRetry={() => refetch()}
+        />
+      )}
+
+      {debouncedSearch.length >= 2 && !error && (
         <div className="space-y-3">
           {guests.length === 0 && !isLoading && (
             <div className="card p-8 text-center">

@@ -25,9 +25,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           position="top-right"
           toastOptions={{
             duration: 4000,
-            style: { background: '#1e293b', color: '#f1f5f9', borderRadius: '8px' },
-            success: { iconTheme: { primary: '#10b981', secondary: '#fff' } },
-            error: { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
+            // Brand palette (sage/cream), not the pre-rebrand slate/blue.
+            style: { background: '#1e2b16', color: '#fdfaf2', borderRadius: '10px' },
+            success: { iconTheme: { primary: '#7f9f5b', secondary: '#1e2b16' } },
+            error: { iconTheme: { primary: '#e8897f', secondary: '#1e2b16' } },
           }}
         />
       </BrowserRouter>

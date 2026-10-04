@@ -4,12 +4,13 @@ import api from '../api/client';
 import ReviewCard from '../components/ReviewCard';
 import RiskBadge from '../components/RiskBadge';
 import StarRating from '../components/StarRating';
+import QueryError from '../components/QueryError';
 import { Guest, Review } from '../types';
 
 export default function GuestProfile() {
   const { id } = useParams<{ id: string }>();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['guest', id],
     queryFn: () => api.get(`/guests/${id}`).then((r) => r.data.data),
   });
@@ -20,6 +21,19 @@ export default function GuestProfile() {
     return (
       <div className="flex items-center justify-center py-24">
         <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // A failed request is not the same as a guest that doesn't exist — saying
+  // "Guest not found" after a 500 or a quota block is actively misleading.
+  if (error) {
+    return (
+      <div className="max-w-xl mx-auto py-16">
+        <QueryError error={error} label="Could not load this guest" onRetry={() => refetch()} />
+        <div className="text-center mt-6">
+          <Link to="/guests/search" className="btn-secondary text-sm">Back to search</Link>
+        </div>
       </div>
     );
   }

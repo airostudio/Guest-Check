@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { ReviewStatus, RiskLevel } from '../types/enums';
 import { authenticate } from '../middleware/auth';
+import { requireFeature, recordGuestLookup, lookupQuotaResponse } from '../middleware/planLimits';
 import { AuthRequest } from '../types';
 import { ratingToLabel } from '../utils/riskScore';
 import { db, OrCondition } from '../lib/supabase';
@@ -56,7 +57,14 @@ interface PropertyRef {
 router.get(
   '/caller/:number',
   authenticate,
+  requireFeature('phoneIntegration', 'Caller ID at reception'),
   asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
+    const quota = await recordGuestLookup(req, { method: 'phone', query: req.params.number });
+    if (!quota.allowed) {
+      res.status(402).json(lookupQuotaResponse(quota.used, quota.limit));
+      return;
+    }
+
     const searchVariants = phoneMatchVariants(req.params.number);
 
     if (searchVariants.length === 0) {

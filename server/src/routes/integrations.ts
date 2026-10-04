@@ -3,6 +3,7 @@ import { BookingSource, BookingStatus, RiskLevel } from '../types/enums';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { authenticate, requirePropertyAdmin } from '../middleware/auth';
+import { requireFeature } from '../middleware/planLimits';
 import { AuthRequest } from '../types';
 import logger from '../utils/logger';
 import { db } from '../lib/supabase';
@@ -86,6 +87,7 @@ router.post(
   '/api-keys',
   authenticate,
   requirePropertyAdmin,
+  requireFeature('apiAccess', 'API access'),
   asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { name, permissions, expiresInDays } = req.body;
     const propertyId = req.user!.propertyId!;
@@ -142,6 +144,7 @@ router.post(
   '/platforms/:platform',
   authenticate,
   requirePropertyAdmin,
+  requireFeature('apiAccess', 'Booking system integration'),
   asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
     const { platform } = req.params;
     if (!Object.values(BookingSource).includes(platform as BookingSource)) {

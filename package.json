@@ -5,9 +5,11 @@
   "description": "GuestCheck - Guest review platform for accommodation businesses",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "vercel-build": "npm run typecheck && cd client && npm run build",
+    "vercel-build": "npm run typecheck && npm run test && cd client && npm run build",
     "dev:server": "cd server && npm run dev",
-    "dev:client": "cd client && npm run dev"
+    "dev:client": "cd client && npm run dev",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -33,6 +35,9 @@
     "@types/jsonwebtoken": "^9.0.6",
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.12.2",
-    "@types/uuid": "^9.0.8"
+    "@types/supertest": "^7.2.1",
+    "@types/uuid": "^9.0.8",
+    "supertest": "^7.3.1",
+    "vitest": "^2.1.9"
   }
 }

@@ -4,21 +4,37 @@ import api from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import RiskBadge from '../components/RiskBadge';
 import StarRating from '../components/StarRating';
+import QueryError from '../components/QueryError';
 import { RiskLevel } from '../types';
 import { format } from 'date-fns';
+
+/** "Good morning" was hardcoded, so it greeted night staff at 3am. */
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
 
-  const { data: stats } = useQuery({
+  const { data: stats, error: statsError, refetch: refetchStats } = useQuery({
     queryKey: ['review-stats'],
     queryFn: () => api.get('/reviews/stats/mine').then((r) => r.data.data),
   });
 
-  const { data: arrivals } = useQuery({
+  const {
+    data: arrivals,
+    error: arrivalsError,
+    refetch: refetchArrivals,
+  } = useQuery({
     queryKey: ['upcoming-arrivals'],
     queryFn: () => api.get('/bookings/upcoming/arrivals?days=7').then((r) => r.data.data),
   });
+
+  // A failed arrivals fetch must never render as "0 high-risk alerts".
+  const arrivalsFailed = Boolean(arrivalsError);
 
   const propertyStatus = user?.property?.status;
   const isPending = propertyStatus === 'PENDING_VERIFICATION';
@@ -29,7 +45,7 @@ export default function Dashboard() {
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">
-            Good morning, {user?.firstName} 👋
+            {greeting()}, {user?.firstName} 👋
           </h1>
           {user?.property && (
             <p className="text-slate-500 mt-1">{user.property.name} · {user.property.city}</p>
@@ -56,6 +72,14 @@ export default function Dashboard() {
         </div>
       )}
 
+      {(statsError || arrivalsError) && (
+        <QueryError
+          error={statsError ?? arrivalsError}
+          label="Some dashboard data could not be loaded"
+          onRetry={() => { refetchStats(); refetchArrivals(); }}
+        />
+      )}
+
       {/* Stats cards */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
@@ -72,13 +96,13 @@ export default function Dashboard() {
         />
         <StatCard
           label="Upcoming Arrivals (7d)"
-          value={arrivals?.length ?? '—'}
+          value={arrivalsFailed ? '—' : arrivals?.length ?? '—'}
           icon="🏨"
           color="blue"
         />
         <StatCard
           label="High-Risk Alerts"
-          value={arrivals?.filter((a: { alert: unknown }) => a.alert)?.length ?? 0}
+          value={arrivalsFailed ? '—' : arrivals?.filter((a: { alert: unknown }) => a.alert)?.length ?? 0}
           icon="⚠️"
           color="red"
         />
@@ -93,7 +117,7 @@ export default function Dashboard() {
           </div>
 
           <div className="space-y-3">
-            {arrivals?.length === 0 && (
+            {!arrivalsFailed && arrivals?.length === 0 && (
               <div className="card p-6 text-center text-slate-400 text-sm">
                 No arrivals in the next 7 days
               </div>

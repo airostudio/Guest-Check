@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # Server/API dependencies live at the repo root; the SPA has its own.
+      - name: Install root dependencies
+        run: npm ci --include=dev
+
+      - name: Install client dependencies
+        run: npm ci --include=dev
+        working-directory: client
+
+      # The deploy pipeline compiles the server with esbuild, which strips
+      # types without checking them — so this is the only thing standing
+      # between a type error and production.
+      - name: Typecheck server
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Typecheck and build client
+        run: npm run build
+        working-directory: client

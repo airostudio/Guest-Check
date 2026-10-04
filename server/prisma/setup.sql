@@ -282,6 +282,24 @@ CREATE TABLE IF NOT EXISTS "Waitlist" (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "Waitlist_email_key" ON "Waitlist"(lower("email"));
 
+-- Guest lookups: both the metering source for the per-plan lookup allowance and
+-- the audit trail of who viewed whose record. Guest rows carry personal data
+-- and cross-property risk scores, so this needs to be answerable.
+CREATE TABLE IF NOT EXISTS "GuestLookup" (
+  "id"         TEXT NOT NULL DEFAULT gen_random_uuid()::text,
+  "propertyId" TEXT NOT NULL,
+  "userId"     TEXT,
+  "guestId"    TEXT,
+  "method"     TEXT NOT NULL,
+  "query"      TEXT,
+  "createdAt"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "GuestLookup_pkey" PRIMARY KEY ("id")
+);
+-- Supports the "lookups this month for this property" count.
+CREATE INDEX IF NOT EXISTS "GuestLookup_property_created_idx"
+  ON "GuestLookup"("propertyId","createdAt");
+CREATE INDEX IF NOT EXISTS "GuestLookup_guestId_idx" ON "GuestLookup"("guestId");
+
 CREATE TABLE IF NOT EXISTS "AuditLog" (
   "id"         TEXT NOT NULL DEFAULT gen_random_uuid()::text,
   "userId"     TEXT,

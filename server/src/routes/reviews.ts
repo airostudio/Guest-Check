@@ -1,23 +1,15 @@
 import { Router, Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import crypto from 'crypto';
-import { ReviewStatus, SubscriptionTier } from '../types/enums';
+import { ReviewStatus } from '../types/enums';
 import { authenticate } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { refreshGuestScore } from './guests';
 import { db } from '../lib/supabase';
 import { parsePagination, totalPages } from '../utils/pagination';
-import config from '../config/config';
 import { asyncHandler } from '../utils/asyncHandler';
+import { planLimits, startOfMonthUtc } from '../middleware/planLimits';
 
-function planLimits(tier: SubscriptionTier | undefined) {
-  switch (tier) {
-    case SubscriptionTier.ENTERPRISE:   return config.plans.enterprise;
-    case SubscriptionTier.PROFESSIONAL: return config.plans.professional;
-    case SubscriptionTier.BASIC:        return config.plans.basic;
-    default:                            return config.plans.freeTrial;
-  }
-}
 
 const router = Router();
 
@@ -114,13 +106,11 @@ router.post(
 
     const limits = planLimits(req.user!.subscriptionTier);
     if (limits.reviewsPerMonth !== -1) {
-      // Anchor to UTC so the boundary is identical in dev and on Vercel.
-      const nowDate = new Date();
-      const startOfMonth = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), 1));
+      const startOfMonth = startOfMonthUtc();
       // Moderated-away reviews should not burn quota.
       const monthCount = await db.count('Review', {
         propertyId,
-        createdAt: { gte: startOfMonth.toISOString() },
+        createdAt: { gte: startOfMonth },
         status: { neq: ReviewStatus.REMOVED },
       });
       if (monthCount >= limits.reviewsPerMonth) {

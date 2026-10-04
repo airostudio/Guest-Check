@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { authenticate, requirePropertyAdmin } from '../middleware/auth';
 import { AuthRequest } from '../types';
 import { db } from '../lib/supabase';
+import { planLimits } from '../middleware/planLimits';
 import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
@@ -129,6 +130,23 @@ router.post(
 
     const { email, firstName, lastName, role } = req.body;
     const propertyId = req.user!.propertyId!;
+
+    // Seat limit — config.plans defines teamMembers per tier but nothing
+    // enforced it, so every plan effectively had unlimited seats.
+    const limits = planLimits(req.user!.subscriptionTier);
+    if (limits.teamMembers !== -1) {
+      const seatsUsed = await db.count('User', { propertyId });
+      if (seatsUsed >= limits.teamMembers) {
+        res.status(402).json({
+          success: false,
+          code: 'PLAN_LIMIT_REACHED',
+          message:
+            `Your plan includes ${limits.teamMembers} team member${limits.teamMembers === 1 ? '' : 's'} ` +
+            `and you have ${seatsUsed}. Upgrade your plan to add more.`,
+        });
+        return;
+      }
+    }
 
     const existing = await db.selectOne<UserRow>('User', { email });
     if (existing) {

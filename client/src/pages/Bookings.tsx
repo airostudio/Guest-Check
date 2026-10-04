@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import api from '../api/client';
 import RiskBadge from '../components/RiskBadge';
+import QueryError from '../components/QueryError';
 import { Booking, BookingStatus, RiskLevel } from '../types';
 import { format } from 'date-fns';
 
@@ -19,7 +20,7 @@ export default function Bookings() {
   const [upcoming, setUpcoming] = useState(false);
   const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading , error: bookingsError, refetch: refetchBookings } = useQuery({
     queryKey: ['bookings', statusFilter, upcoming, page],
     queryFn: () =>
       api.get(`/bookings?page=${page}&limit=20${statusFilter ? `&status=${statusFilter}` : ''}${upcoming ? '&upcoming=true' : ''}`).then((r) => r.data),
@@ -60,8 +61,16 @@ export default function Bookings() {
         </button>
       </div>
 
+      {bookingsError && (
+        <QueryError
+          error={bookingsError}
+          label="Could not load bookings"
+          onRetry={() => refetchBookings()}
+        />
+      )}
+
       {/* Bookings table */}
-      {isLoading ? (
+      {bookingsError ? null : isLoading ? (
         <div className="flex justify-center py-12">
           <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
         </div>
